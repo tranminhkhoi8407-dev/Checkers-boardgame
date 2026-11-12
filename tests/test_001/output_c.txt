@@ -1,0 +1,11 @@
+_ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ r _ r _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ b _
+_ b _ b _ b _ b
+b _ b _ b _ b _
+Black's turn.
+Red's turn.
+Red wins!

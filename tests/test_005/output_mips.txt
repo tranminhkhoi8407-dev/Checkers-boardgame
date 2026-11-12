@@ -1,0 +1,303 @@
+_ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ r _ r _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ b _
+_ b _ b _ b _ b
+b _ b _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: _ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ r _ r _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ b _ 0
+b _ b _ b _ 0 _
+_ b _ b _ b _ b
+b _ b _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ r _ 0 _ r
+0 _ 0 _ 0 _ r _
+_ 0 _ 0 _ b _ 0
+b _ b _ b _ 0 _
+_ b _ b _ b _ b
+b _ b _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: _ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ r _ 0 _ r
+0 _ 0 _ 0 _ r _
+_ 0 _ b _ b _ 0
+b _ 0 _ b _ 0 _
+_ b _ b _ b _ b
+b _ b _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ 0 _ 0 _ r
+0 _ 0 _ r _ r _
+_ 0 _ b _ b _ 0
+b _ 0 _ b _ 0 _
+_ b _ b _ b _ b
+b _ b _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: _ r _ r _ r _ r
+r _ r _ r _ r _
+_ r _ 0 _ 0 _ r
+0 _ 0 _ r _ r _
+_ 0 _ b _ b _ 0
+b _ b _ b _ 0 _
+_ b _ 0 _ b _ b
+b _ b _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ r _ r _ r
+r _ 0 _ r _ r _
+_ r _ r _ 0 _ r
+0 _ 0 _ r _ r _
+_ 0 _ b _ b _ 0
+b _ b _ b _ 0 _
+_ b _ 0 _ b _ b
+b _ b _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ r _ r _ r _ r
+r _ 0 _ r _ r _
+_ r _ r _ b _ r
+0 _ 0 _ 0 _ r _
+_ 0 _ 0 _ b _ 0
+b _ b _ b _ 0 _
+_ b _ 0 _ b _ b
+b _ b _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: Captured Black's piece.
+_ r _ r _ r _ r
+r _ 0 _ r _ 0 _
+_ r _ r _ 0 _ r
+0 _ 0 _ r _ r _
+_ 0 _ 0 _ b _ 0
+b _ b _ b _ 0 _
+_ b _ 0 _ b _ b
+b _ b _ b _ b _
+Chaining possible.
+Enter landing square: Captured Black's piece.
+_ r _ r _ r _ r
+r _ 0 _ r _ 0 _
+_ r _ r _ 0 _ r
+0 _ 0 _ 0 _ r _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ r _
+_ b _ 0 _ b _ b
+b _ b _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ r _ r _ r _ r
+r _ 0 _ r _ 0 _
+_ r _ r _ 0 _ r
+0 _ 0 _ 0 _ r _
+_ 0 _ 0 _ 0 _ b
+b _ b _ b _ 0 _
+_ b _ 0 _ 0 _ b
+b _ b _ b _ b _
+Chaining possible.
+Enter landing square: Captured Red's piece.
+_ r _ r _ r _ r
+r _ 0 _ r _ 0 _
+_ r _ r _ b _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ 0 _ 0 _ b
+b _ b _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ r _ r
+r _ r _ r _ 0 _
+_ r _ r _ b _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ 0 _ 0 _ b
+b _ b _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ r _ r
+r _ r _ r _ 0 _
+_ r _ r _ b _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ r _ r
+r _ r _ r _ 0 _
+_ 0 _ r _ b _ r
+0 _ r _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ r _ B _ r _ r
+r _ r _ 0 _ 0 _
+_ 0 _ r _ 0 _ r
+0 _ r _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Chaining possible.
+Enter landing square: Captured Red's piece.
+_ r _ 0 _ r _ r
+r _ 0 _ 0 _ 0 _
+_ B _ r _ 0 _ r
+0 _ r _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Chaining possible.
+Enter landing square: Captured Red's piece.
+_ r _ 0 _ r _ r
+r _ 0 _ 0 _ 0 _
+_ 0 _ r _ 0 _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ B _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ 0 _ r
+r _ 0 _ r _ 0 _
+_ 0 _ r _ 0 _ r
+0 _ 0 _ 0 _ 0 _
+_ 0 _ B _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ 0 _ r
+r _ 0 _ r _ 0 _
+_ 0 _ r _ 0 _ r
+0 _ B _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ 0 _ 0
+r _ 0 _ r _ r _
+_ 0 _ r _ 0 _ r
+0 _ B _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+b _ b _ b _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ 0 _ 0
+r _ 0 _ r _ r _
+_ 0 _ r _ 0 _ r
+0 _ B _ 0 _ 0 _
+_ 0 _ 0 _ b _ 0
+b _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: Captured Black's piece.
+_ r _ 0 _ 0 _ 0
+r _ 0 _ r _ r _
+_ 0 _ 0 _ 0 _ r
+0 _ 0 _ 0 _ 0 _
+_ r _ 0 _ b _ 0
+b _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ r _ 0 _ 0 _ 0
+r _ 0 _ r _ r _
+_ 0 _ 0 _ 0 _ r
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ b _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ r _ 0 _ 0 _ 0
+r _ 0 _ r _ r _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ r _
+_ 0 _ 0 _ b _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ r _ 0 _ 0 _ 0
+r _ 0 _ r _ r _
+_ 0 _ 0 _ 0 _ b
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Chaining possible.
+Enter landing square: Captured Red's piece.
+_ r _ 0 _ B _ 0
+r _ 0 _ r _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Chaining possible.
+Enter landing square: Captured Red's piece.
+_ r _ 0 _ 0 _ 0
+r _ 0 _ 0 _ 0 _
+_ 0 _ B _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ 0 _ 0 _ 0 _ 0
+r _ r _ 0 _ 0 _
+_ 0 _ B _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ B _ 0 _ 0 _ 0
+r _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Red's turn.
+Enter starting square: Enter landing square: _ B _ 0 _ 0 _ 0
+0 _ 0 _ 0 _ 0 _
+_ r _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black's turn.
+Enter starting square: Enter landing square: Captured Red's piece.
+_ B _ 0 _ 0 _ 0
+b _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ 0 _ 0 _ 0 _
+_ 0 _ 0 _ 0 _ 0
+0 _ b _ 0 _ 0 _
+_ b _ b _ 0 _ b
+b _ 0 _ b _ b _
+Black wins!
