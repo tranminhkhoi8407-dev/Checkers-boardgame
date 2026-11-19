@@ -1,0 +1,158 @@
+###############################################################################
+# rules_driver.asm - chương trình kiểm thử luật (rules.asm) bằng thế cờ dựng sẵn
+#
+# Đọc lệnh từ stdin (mỗi số một dòng) rồi gọi thẳng các hàm của rules.asm:
+#   1            nạp bàn cờ: 8 dòng tiếp theo, mỗi dòng 8 ký tự (_ 0 b r B R)
+#   2 s d side   classify_move     -> in "type err"
+#   3 s d side   validate_move     -> in "type err"
+#   4 s d side   validate_chain    -> in "type err"
+#   5 s side     can_capture_from  -> in 0/1
+#   6 side       has_any_move      -> in 0/1
+#   7 s d        do_move           -> in "promoted" rồi in bàn cờ
+#   8 k v        đặt tùy chọn thứ k (1..9) = v
+#   9 side       side_has_capture  -> in 0/1
+#  10 side       count_pieces      -> in số quân
+#   0            kết thúc
+# Chạy: java -jar Mars45.jar nc tests/unit/rules_driver.asm < lệnh.txt
+###############################################################################
+.include "../../src/defs.asm"
+
+.data
+turn:           .word 0
+options:
+opt_pretty:     .word 0
+opt_rotate:     .word 0
+opt_relnum:     .word 0
+opt_detail:     .word 0
+opt_hints:      .word 0
+opt_forced:     .word 0
+opt_flying:     .word 0
+opt_bitmap:     .word 0
+opt_replay:     .word 0
+row_buf:        .space 16
+
+.text
+.globl main
+main:
+    jal  init_board
+driver_loop:
+    jal  read_number
+    beq  $v0, 1, cmd_load
+    beq  $v0, 2, cmd_classify
+    beq  $v0, 3, cmd_validate
+    beq  $v0, 4, cmd_chain
+    beq  $v0, 5, cmd_can_capture
+    beq  $v0, 6, cmd_has_move
+    beq  $v0, 7, cmd_do_move
+    beq  $v0, 8, cmd_option
+    beq  $v0, 9, cmd_side_capture
+    beq  $v0, 10, cmd_count
+    li   $v0, 10
+    syscall
+
+cmd_load:
+    li   $s0, 0                 # hàng
+cmd_load_row:
+    la   $a0, row_buf
+    li   $a1, 16
+    li   $v0, 8
+    syscall
+    li   $s1, 0                 # cột
+cmd_load_col:
+    lbu  $t0, row_buf($s1)
+    sll  $t1, $s0, 3
+    add  $t1, $t1, $s1
+    sb   $t0, board($t1)
+    addi $s1, $s1, 1
+    blt  $s1, 8, cmd_load_col
+    addi $s0, $s0, 1
+    blt  $s0, 8, cmd_load_row
+    j    driver_loop
+
+cmd_classify:
+    jal  read_three
+    jal  classify_move
+    j    print_pair
+cmd_validate:
+    jal  read_three
+    jal  validate_move
+    j    print_pair
+cmd_chain:
+    jal  read_three
+    jal  validate_chain
+    j    print_pair
+
+cmd_can_capture:
+    jal  read_number
+    move $s0, $v0
+    jal  read_number
+    move $a0, $s0
+    move $a1, $v0
+    jal  can_capture_from
+    j    print_one
+cmd_has_move:
+    jal  read_number
+    move $a0, $v0
+    jal  has_any_move
+    j    print_one
+cmd_side_capture:
+    jal  read_number
+    move $a0, $v0
+    jal  side_has_capture
+    j    print_one
+cmd_count:
+    jal  read_number
+    move $a0, $v0
+    jal  count_pieces
+    j    print_one
+
+cmd_do_move:
+    jal  read_number
+    move $s0, $v0
+    jal  read_number
+    move $a0, $s0
+    move $a1, $v0
+    jal  do_move
+    print_int_reg($v0)
+    print_char(10)
+    li   $a0, 0
+    jal  print_board_plain
+    j    driver_loop
+
+cmd_option:
+    jal  read_number
+    move $s0, $v0
+    jal  read_number
+    addi $t0, $s0, -1
+    sll  $t0, $t0, 2
+    sw   $v0, options($t0)
+    j    driver_loop
+
+# read_three: đọc 3 số vào a0, a1, a2
+read_three:
+    push($ra)
+    jal  read_number
+    move $s0, $v0
+    jal  read_number
+    move $s1, $v0
+    jal  read_number
+    move $a2, $v0
+    move $a0, $s0
+    move $a1, $s1
+    pop($ra)
+    jr   $ra
+
+print_pair:
+    move $t0, $v1
+    print_int_reg($v0)
+    print_char(32)
+    print_int_reg($t0)
+    print_char(10)
+    j    driver_loop
+print_one:
+    print_int_reg($v0)
+    print_char(10)
+    j    driver_loop
+
+.include "../../src/board_io.asm"
+.include "../../src/rules.asm"
