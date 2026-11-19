@@ -8,22 +8,23 @@ MAIN_ASM = ROOT / "src" / "main.asm"
 DRIVER_ASM = ROOT / "tests" / "unit" / "rules_driver.asm"
 
 
-def run_mars(asm, lines, extra_args=()):
-    """Chạy file asm, nạp từng dòng trong lines vào stdin và trả về stdout.
-
-    Input phải tự kết thúc chương trình (hết ván, chọn Quit, hoặc lệnh 0 của
-    driver): MARS bị lỗi nếu đọc tiếp khi đã hết stdin.
-    """
+def run_mars(asm, lines, extra_args=(), program_args=()):
+    """Nạp danh sách dòng hoặc chuỗi nguyên văn vào stdin rồi trả về stdout."""
+    input_text = lines if isinstance(lines, str) else "".join(f"{line}\n" for line in lines)
+    args = ["java", "-jar", str(MARS), "nc", "ae1", "se1", *extra_args, str(asm)]
+    if program_args:
+        args.extend(["pa", *program_args])
     result = subprocess.run(
-        ["java", "-jar", str(MARS), "nc", *extra_args, str(asm)],
-        input="".join(f"{line}\n" for line in lines),
+        args,
+        input=input_text.encode("utf-8"),
         capture_output=True,
-        text=True,
         timeout=30,
     )
-    assert "Exception" not in result.stderr + result.stdout, result.stderr + result.stdout
-    assert "Error" not in result.stderr, result.stderr
-    return result.stdout
+    stdout = result.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")
+    stderr = result.stderr.decode("utf-8", errors="replace")
+    assert result.returncode == 0, stdout + stderr
+    assert "Exception" not in stdout + stderr, stdout + stderr
+    return stdout
 
 
 def square_rc(square):

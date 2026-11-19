@@ -29,8 +29,6 @@ opt_forced:     .word 0
 opt_flying:     .word 0
 opt_bitmap:     .word 0
 opt_replay:     .word 0
-row_buf:        .space 16
-
 .text
 .globl main
 main:
@@ -53,13 +51,11 @@ driver_loop:
 cmd_load:
     li   $s0, 0                 # hàng
 cmd_load_row:
-    la   $a0, row_buf
-    li   $a1, 16
-    li   $v0, 8
-    syscall
+    jal  read_input_line
+    bne  $v0, 8, driver_bad_row
     li   $s1, 0                 # cột
 cmd_load_col:
-    lbu  $t0, row_buf($s1)
+    lbu  $t0, input_line($s1)
     sll  $t1, $s0, 3
     add  $t1, $t1, $s1
     sb   $t0, board($t1)
@@ -68,6 +64,11 @@ cmd_load_col:
     addi $s0, $s0, 1
     blt  $s0, 8, cmd_load_row
     j    driver_loop
+
+driver_bad_row:
+    li   $a0, 1
+    li   $v0, 17
+    syscall
 
 cmd_classify:
     jal  read_three

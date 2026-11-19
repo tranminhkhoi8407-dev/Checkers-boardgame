@@ -23,18 +23,21 @@ start_board:    .ascii "_r_r_r_r"
                 .ascii "_b_b_b_b"
                 .ascii "b_b_b_b_"
 
-# Mặt nạ vẽ một quân cờ trong ô 8x8 điểm của Bitmap Display:
-# 0 = nền ô, 1 = thân quân, 2 = phần giữa (tô vàng nếu là vua)
+# Mặt nạ quân cờ trong ô 8x8 điểm của Bitmap Display.
+# 0 = nền, 1 = thân quân, 2 = hình vương miện (chỉ tô vàng cho vua).
 piece_mask:     .byte 0,0,0,0,0,0,0,0
                 .byte 0,0,1,1,1,1,0,0
-                .byte 0,1,1,2,2,1,1,0
+                .byte 0,1,2,1,1,2,1,0
                 .byte 0,1,2,2,2,2,1,0
-                .byte 0,1,2,2,2,2,1,0
                 .byte 0,1,1,2,2,1,1,0
+                .byte 0,1,1,1,1,1,1,0
                 .byte 0,0,1,1,1,1,0,0
                 .byte 0,0,0,0,0,0,0,0
 
-input_buf:      .space INPUT_SIZE
+input_chunk:    .space INPUT_CHUNK_SIZE
+input_line:     .space INPUT_SIZE
+input_next:     .word 0
+input_end:      .word 0
 
 str_black:      .asciiz "Black"
 str_red:        .asciiz "Red"
@@ -42,13 +45,20 @@ str_invalid:    .asciiz "Not a valid move! Try again.\n"
 str_invalid_pre:.asciiz "Not a valid move! "
 str_try_again:  .asciiz " Try again.\n"
 
-str_pretty_head1: .asciiz "\n  Black (b, B = king): "
+str_pretty_title: .asciiz "\n  CHECKERS\n"
+str_pretty_kings: .asciiz "  Kings  "
+str_pretty_short: .asciiz "Standard"
+str_pretty_flying:.asciiz "Flying"
+str_pretty_cap:   .asciiz "    |    First capture  "
+str_pretty_optional:.asciiz "Optional\n"
+str_pretty_required:.asciiz "Required\n"
+str_pretty_head1: .asciiz "  Black (b, B = king): "
 str_pretty_head2: .asciiz "    Red (r, R = king): "
 str_pretty_rot:   .asciiz "    [Red's view]"
-str_pretty_cols:  .asciiz "  Board                                Square numbers\n"
+str_pretty_cols:  .asciiz "  POSITION                             PLAYABLE SQUARES\n"
 str_pretty_line:  .asciiz "  +---+---+---+---+---+---+---+---+    +---+---+---+---+---+---+---+---+\n"
 str_pretty_gap:   .asciiz "    |"
-str_pretty_foot:  .asciiz "  . = empty square     Type 0 at \"Enter starting square\" to open the menu.\n"
+str_pretty_foot:  .asciiz "  .  Empty square     |     0  Settings (at the starting-square prompt)\n"
 
 # Câu giải thích cho từng mã lỗi (dùng khi bật "Detailed error messages")
 err_table:      .word err_txt_none, err_txt_range, err_txt_empty, err_txt_not_yours
@@ -176,10 +186,12 @@ view_index_ret:
 
 # -----------------------------------------------------------------------------
 # board_rotated(a0 = side xem bàn) -> v0 = 1 nếu cần xoay bàn cho bên đó
-# (bật "Rotate board" và đến lượt Đỏ)
+# Khi Đỏ dùng số ô riêng, xoay luôn bàn để ô 29 ở góc dưới bên trái.
 # -----------------------------------------------------------------------------
 board_rotated:
     lw   $v0, opt_rotate
+    lw   $t0, opt_relnum
+    or   $v0, $v0, $t0
     and  $v0, $v0, $a0          # side Đỏ = 1
     jr   $ra
 
@@ -201,18 +213,67 @@ view_square_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# read_number() -> v0 = số nguyên không âm vừa nhập, hoặc -1 nếu không hợp lệ.
+# read_input_line() -> v0 = độ dài dòng, INPUT_INVALID, hoặc INPUT_END.
+# Đọc từ stdin bằng syscall 14 để phát hiện EOF trên MARS CLI. Cùng syscall
+# này đọc từ Run I/O trên MARS GUI. Giữ phần chưa đọc của mỗi khối cho lần sau.
+# Nếu dòng quá dài, bỏ tới hết dòng để lần đọc sau vẫn bắt đầu đúng chỗ.
+# -----------------------------------------------------------------------------
+read_input_line:
+    li   $t0, 0                 # độ dài dòng (bão hòa tại INPUT_SIZE + 1)
+read_line_next:
+    lw   $t1, input_next
+    lw   $t2, input_end
+    blt  $t1, $t2, read_line_byte
+    li   $a0, 0                 # file descriptor stdin
+    la   $a1, input_chunk
+    li   $a2, INPUT_CHUNK_SIZE
+    li   $v0, 14
+    syscall
+    blez $v0, read_line_end
+    sw   $v0, input_end
+    li   $t1, 0
+read_line_byte:
+    lbu  $t2, input_chunk($t1)
+    addi $t1, $t1, 1
+    sw   $t1, input_next
+    beq  $t2, '\n', read_line_finish
+    bgt  $t0, INPUT_SIZE, read_line_next
+    beq  $t0, INPUT_SIZE, read_line_count
+    sb   $t2, input_line($t0)
+read_line_count:
+    addi $t0, $t0, 1
+    j    read_line_next
+read_line_end:
+    beqz $t0, read_line_eof       # một dòng cuối không có '\n' vẫn được xét
+read_line_finish:
+    li   $v0, INPUT_INVALID
+    bgt  $t0, INPUT_SIZE, read_line_ret
+    beqz $t0, read_line_terminate
+    addi $t1, $t0, -1
+    lbu  $t2, input_line($t1)
+    bne  $t2, '\r', read_line_terminate
+    move $t0, $t1               # bỏ CR cuối dòng để hỗ trợ CRLF
+read_line_terminate:
+    bge  $t0, INPUT_SIZE, read_line_ret
+    sb   $zero, input_line($t0)
+    move $v0, $t0
+read_line_ret:
+    jr   $ra
+read_line_eof:
+    li   $v0, INPUT_END
+    jr   $ra
+
+# -----------------------------------------------------------------------------
+# read_number() -> v0 = số nguyên không âm, INPUT_INVALID, hoặc INPUT_END.
 #
-# Đọc cả dòng bằng syscall 8 rồi tự đổi sang số, nên gõ chữ, để trống hay số
-# quá lớn đều không làm MARS dừng (syscall 5 sẽ báo lỗi và dừng chương trình).
 # Chấp nhận khoảng trắng ở đầu/cuối dòng. Số lớn hơn 9999 được giữ ở 9999.
 # -----------------------------------------------------------------------------
 read_number:
-    la   $a0, input_buf
-    li   $a1, INPUT_SIZE
-    li   $v0, 8
-    syscall
-    la   $t0, input_buf
+    push($ra)
+    jal  read_input_line
+    bltz $v0, read_number_ret
+    la   $t0, input_line
+    addu $t3, $t0, $v0          # cuối dòng thật, kể cả khi có byte NUL ở giữa
 read_number_lead:               # bỏ khoảng trắng ở đầu
     lbu  $t1, 0($t0)
     beq  $t1, ' ', read_number_lead_next
@@ -237,10 +298,9 @@ read_number_digits:
 read_number_cap:
     li   $v0, 9999
     j    read_number_digits
-read_number_tail:               # sau số chỉ được có khoảng trắng / xuống dòng
+read_number_tail:               # sau số chỉ được có khoảng trắng
     beq  $t1, ' ', read_number_tail_next
     beq  $t1, '\t', read_number_tail_next
-    beq  $t1, '\r', read_number_tail_next
     j    read_number_end
 read_number_tail_next:
     addi $t0, $t0, 1
@@ -248,16 +308,16 @@ read_number_tail_next:
     j    read_number_tail
 read_number_end:
     beqz $t2, read_number_bad
-    beqz $t1, read_number_ret
-    beq  $t1, '\n', read_number_ret
+    beq  $t0, $t3, read_number_ret
 read_number_bad:
-    li   $v0, -1
+    li   $v0, INPUT_INVALID
 read_number_ret:
+    pop($ra)
     jr   $ra
 
 # -----------------------------------------------------------------------------
 # read_square(a0 = side đang nhập) -> v0 = số ô thật (1..32), 0 (mở menu),
-# hoặc giá trị không hợp lệ (-1, > 32). Tự đổi từ cách đánh số của người chơi.
+# hoặc mã kết thúc / giá trị không hợp lệ. Tự đổi cách đánh số của người chơi.
 # -----------------------------------------------------------------------------
 read_square:
     push($ra)
@@ -319,6 +379,7 @@ print_board:
     jal  print_board_plain
     j    print_board_bitmap
 print_board_fancy:
+    jal  print_board_rules
     move $a0, $s0
     move $a1, $s1
     jal  print_board_pretty
@@ -331,6 +392,29 @@ print_board_ret:
     pop($s1)
     pop($s0)
     pop($ra)
+    jr   $ra
+
+# -----------------------------------------------------------------------------
+# print_board_rules() - hiển thị hai tùy chọn luật áp dụng cho bàn cờ hiện tại
+# -----------------------------------------------------------------------------
+print_board_rules:
+    print_str(str_pretty_title)
+    print_str(str_pretty_kings)
+    lw   $t0, opt_flying
+    la   $a0, str_pretty_short
+    beqz $t0, print_board_kings
+    la   $a0, str_pretty_flying
+print_board_kings:
+    li   $v0, 4
+    syscall
+    print_str(str_pretty_cap)
+    lw   $t0, opt_forced
+    la   $a0, str_pretty_optional
+    beqz $t0, print_board_capture_rule
+    la   $a0, str_pretty_required
+print_board_capture_rule:
+    li   $v0, 4
+    syscall
     jr   $ra
 
 # -----------------------------------------------------------------------------

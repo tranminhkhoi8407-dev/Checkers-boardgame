@@ -140,8 +140,17 @@ def test_promotion_by_capture_then_chain_backward():
 
 
 def test_chain_must_capture_with_same_piece():
-    out = Driver({18: "b", 15: "r", 11: "r"}).chain(18, 14, BLACK).chain(18, 9, BLACK).run()
-    assert out == [pair(INVALID, ERR_CHAIN), pair(INVALID, ERR_NO_ENEMY)]
+    pieces = {18: "b", 15: "r", 10: "r", 23: "b", 19: "r"}
+    out = (Driver(pieces)
+           .validate(23, 16, BLACK)   # quân khác có nước ăn tới 16
+           .chain(18, 16, BLACK)      # quân bị khóa ở 18 không thể chọn nước đó
+           .chain(18, 14, BLACK)      # quân 18 cũng không được đi thường
+           .chain(18, 9, BLACK)       # hoặc nhảy qua ô không có quân địch
+           .chain(18, 10, BLACK)      # ô đích đang có quân
+           .chain(18, 11, BLACK)      # nước ăn đúng của quân ở 18
+           .run())
+    assert out == [pair(CAPTURE), pair(INVALID, ERR_NOT_DIAGONAL), pair(INVALID, ERR_CHAIN),
+                   pair(INVALID, ERR_NO_ENEMY), pair(INVALID, ERR_OCCUPIED), pair(CAPTURE)]
 
 
 def test_blocked_side_has_no_moves():

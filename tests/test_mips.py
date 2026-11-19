@@ -14,15 +14,15 @@ OUTPUT_FILE = "output_mips.txt"
 def prepare_and_run(test_dir):
     """Feed the fixture's input.txt to MARS through stdin and save its output.
 
-    Every fixture plays a game to the end: MARS crashes if a read syscall hits
-    the end of stdin. MARS also prints one extra newline when the program exits,
-    which is dropped so the saved file lines up with expected.txt.
+    Every fixture plays a game to the end. MARS prints one extra newline when
+    the program exits, which is dropped to line up with expected.txt.
     """
     output_path = test_dir / OUTPUT_FILE
     try:
         with open(test_dir / INPUT_FILE) as stdin:
             result = subprocess.run(
-                ["java", "-jar", str(ROOT / "Mars45.jar"), "nc", str(ROOT / "src/main.asm")],
+                ["java", "-jar", str(ROOT / "Mars45.jar"), "nc", "ae1", "se1",
+                 str(ROOT / "src/main.asm"), "pa", "classic"],
                 stdin=stdin,
                 capture_output=True,
                 text=True,
@@ -40,28 +40,19 @@ def prepare_and_run(test_dir):
     return result.returncode
 
 
-def assert_game(test_number):
+@pytest.mark.parametrize(("test_number", "winner", "losing_piece", "remaining"), [
+    (1, "Black", "r", 0),
+    (2, "Red", "b", 0),
+    (3, "Black", "r", 1),
+    (4, "Red", "b", 3),
+    (5, "Black", "r", 0),
+])
+def test_mips_games(test_number, winner, losing_piece, remaining):
     test_dir = ROOT / "tests" / f"test_{test_number:03d}"
     returncode = prepare_and_run(test_dir)
     assert_output_matches(test_dir / OUTPUT_FILE, test_dir / EXPECTED_FILE)
     assert returncode == 0
-
-
-def test_mips_01():
-    assert_game(1)
-
-
-def test_mips_02():
-    assert_game(2)
-
-
-def test_mips_03():
-    assert_game(3)
-
-
-def test_mips_04():
-    assert_game(4)
-
-
-def test_mips_05():
-    assert_game(5)
+    lines = (test_dir / OUTPUT_FILE).read_text().splitlines()
+    assert lines[-1] == f"{winner} wins!"
+    final_board = "\n".join(lines[-9:-1]).split()
+    assert sum(cell.lower() == losing_piece for cell in final_board) == remaining

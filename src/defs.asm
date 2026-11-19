@@ -37,14 +37,17 @@
 
 .eqv NUM_OPTIONS    9           # số tùy chọn bật/tắt trong menu
 .eqv HISTORY_MAX    1000        # số bước tối đa lưu trong lịch sử
-.eqv INPUT_SIZE     64          # kích thước bộ đệm nhập
+.eqv INPUT_SIZE     64          # kích thước bộ đệm nhập (tối đa 63 ký tự/dòng)
+.eqv INPUT_CHUNK_SIZE 256       # số byte tối đa mỗi lần đọc từ stdin
+.eqv INPUT_INVALID  -1          # sai cú pháp hoặc dòng quá dài
+.eqv INPUT_END      -2          # hết stdin hoặc không đọc được nữa
 
 .eqv BITMAP_BASE    0x10040000  # vùng heap, dùng làm bộ nhớ Bitmap Display
-.eqv COLOR_LIGHT    0x00F4F1EA
-.eqv COLOR_DARK     0x0064788A
-.eqv COLOR_BLACK    0x0017181A
-.eqv COLOR_RED      0x00E02B20
-.eqv COLOR_KING     0x00E6C063
+.eqv COLOR_LIGHT    0x00EFE3CA
+.eqv COLOR_DARK     0x00567772
+.eqv COLOR_BLACK    0x00212C45
+.eqv COLOR_RED      0x00BE3448
+.eqv COLOR_KING     0x00F1C972
 
 # ============================ Macro ==========================================
 # Các macro dưới đây chỉ dùng $a0 và $v0.

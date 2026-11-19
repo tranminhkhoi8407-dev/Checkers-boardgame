@@ -3,7 +3,7 @@
 File này không chứa luật chơi và không chạy MARS: bàn cờ lấy từ expected.txt, nước đi
 lấy từ input.txt (mỗi dòng trả lời một lần chương trình hỏi ô).
 
-Chạy: python3 gui.py
+Chạy: python3 main.py
 """
 import re
 import tkinter as tk

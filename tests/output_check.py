@@ -9,7 +9,10 @@ def save_output(path, output):
     """Write what the program printed; a timeout hands over partial output as bytes."""
     if isinstance(output, bytes):
         output = output.decode(errors="replace")
-    path.write_text(output or "")
+    output = output or ""
+    if path.is_file() and path.read_text(encoding="utf-8") == output:
+        return
+    path.write_text(output, encoding="utf-8")
 
 
 def assert_output_matches(output_path, expected_path):

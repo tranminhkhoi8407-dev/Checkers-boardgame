@@ -14,9 +14,8 @@
 #        hoặc mở src/main.asm trong MARS rồi Assemble (tắt tùy chọn
 #        "Assemble all files in directory" để không bị trùng nhãn).
 #
-# Mặc định chương trình chạy đúng bản tối thiểu của đề (output giống hệt
-# tests/*/expected.txt). Gõ 0 ở "Enter starting square:" để mở MENU và bật
-# các tính năng thêm.
+# Mặc định hiển thị bàn cờ có khung và số ô. Nhập 0 ở ô xuất phát để mở menu.
+# Thêm "pa classic" vào cuối lệnh CLI để phát lại transcript của ván mẫu.
 ###############################################################################
 
 # Hằng số (.eqv) và macro dùng chung
@@ -30,7 +29,7 @@ history_len:    .word 0
 
 # Các tùy chọn bật/tắt (thứ tự giống menu, 0 = tắt, 1 = bật)
 options:
-opt_pretty:     .word 0     # 1. bàn cờ đẹp
+opt_pretty:     .word 1     # 1. bàn cờ có khung và số ô
 opt_rotate:     .word 0     # 2. xoay bàn cho lượt Đỏ
 opt_relnum:     .word 0     # 3. Đỏ dùng cách đánh số của mình
 opt_detail:     .word 0     # 4. thông báo lỗi chi tiết
@@ -50,10 +49,13 @@ str_ask_land:   .asciiz "Enter landing square: "
 str_cap_red:    .asciiz "Captured Red's piece.\n"
 str_cap_black:  .asciiz "Captured Black's piece.\n"
 str_chain:      .asciiz "Chaining possible.\n"
+str_chain_piece:.asciiz "  Continue with the piece on square "
 str_black_wins: .asciiz "Black wins!\n"
 str_red_wins:   .asciiz "Red wins!\n"
 
 str_no_moves:   .asciiz " has no legal moves left.\n"
+str_no_pieces:  .asciiz " has no pieces left.\n"
+str_classic_arg:.asciiz "classic"
 str_draw_end:   .asciiz "Both players agreed to a draw. Game over.\n"
 str_replay:     .asciiz "Play again? Type 1 for a new game, anything else to quit: "
 str_bye:        .asciiz "Goodbye!\n"
@@ -81,8 +83,8 @@ str_menu_bad:   .asciiz "Unknown choice.\n"
 str_menu_all:   .asciiz "Quality-of-life options turned on.\n"
 option_labels:  .word opt_txt1, opt_txt2, opt_txt3, opt_txt4, opt_txt5, opt_txt6, opt_txt7, opt_txt8, opt_txt9
 opt_txt1:       .asciiz "  1. Pretty board (frame + square numbers) ... "
-opt_txt2:       .asciiz "  2. Rotate the board on Red's turn .......... "
-opt_txt3:       .asciiz "  3. Red uses its own square numbering ....... "
+opt_txt2:       .asciiz "  2. Rotate Red with standard numbering ..... "
+opt_txt3:       .asciiz "  3. Red's own numbers (also rotates Red) ... "
 opt_txt4:       .asciiz "  4. Detailed error messages ................. "
 opt_txt5:       .asciiz "  5. Move hints (list legal moves) ........... "
 opt_txt6:       .asciiz "  6. Forced capture rule ..................... "
@@ -100,6 +102,20 @@ opt_txt9:       .asciiz "  9. Ask to play again when the game ends .... "
 #   (hết quân hoặc bị chặn hết thì thua). Sau mỗi lượt hợp lệ mới đổi lượt.
 # -----------------------------------------------------------------------------
 main:
+    # MARS CLI: "pa classic" khởi động với bàn cờ gọn để phát lại ván mẫu.
+    beqz $a0, main_new_game
+    lw   $t0, 0($a1)
+    la   $t1, str_classic_arg
+main_arg_check:
+    lbu  $t2, 0($t0)
+    lbu  $t3, 0($t1)
+    bne  $t2, $t3, main_new_game
+    beqz $t2, main_classic
+    addiu $t0, $t0, 1
+    addiu $t1, $t1, 1
+    j    main_arg_check
+main_classic:
+    sw   $zero, opt_pretty
 main_new_game:
     jal  new_game
     li   $a0, SIDE_BLACK
@@ -118,11 +134,22 @@ main_loop:
     j    main_loop
 
 main_no_moves:                  # bên tới lượt thua
+    lw   $t0, opt_pretty
+    bnez $t0, main_loss_reason
     lw   $t0, opt_detail
     beqz $t0, main_announce
+main_loss_reason:
+    lw   $a0, turn
+    jal  count_pieces
+    beqz $v0, main_no_pieces
     lw   $a0, turn
     jal  print_side
     print_str(str_no_moves)
+    j    main_announce
+main_no_pieces:
+    lw   $a0, turn
+    jal  print_side
+    print_str(str_no_pieces)
 main_announce:
     lw   $t0, turn
     la   $a0, str_red_wins
@@ -199,8 +226,11 @@ play_turn_ask_start:
     print_str(str_ask_start)
     move $a0, $s3
     jal  read_square
+    beq  $v0, INPUT_END, play_turn_input_end
     beqz $v0, play_turn_menu
     move $s0, $v0               # s0 = ô xuất phát
+    blt  $s0, 1, play_turn_bad_number
+    bgt  $s0, 32, play_turn_bad_number
 
     # Bật lỗi chi tiết hoặc gợi ý: kiểm tra ô xuất phát ngay, chưa hỏi ô đích
     lw   $t0, opt_detail
@@ -227,6 +257,7 @@ play_turn_ask_land:
     print_str(str_ask_land)
     move $a0, $s3
     jal  read_square
+    beq  $v0, INPUT_END, play_turn_input_end
     move $s1, $v0               # s1 = ô đích
     move $a0, $s0
     move $a1, $s1
@@ -261,7 +292,7 @@ play_turn_captured:             # s1 = ô quân vừa ăn đang đứng
 play_turn_cap_msg:
     li   $v0, 4
     syscall
-    move $a0, $s1
+    move $a0, $s1               # đọc quân ở ô mới sau do_move (có thể đã là vua)
     move $a1, $s3
     jal  can_capture_from
     move $s4, $v0               # s4 = còn ăn tiếp được không
@@ -274,6 +305,16 @@ play_turn_cap_board:
     beqz $s4, play_turn_ret
 
     print_str(str_chain)
+    lw   $t0, opt_pretty
+    beqz $t0, play_turn_chain_hints
+    print_str(str_chain_piece)
+    move $a0, $s1
+    move $a1, $s3
+    jal  view_square
+    print_int_reg($v0)
+    print_char(46)
+    print_char(10)
+play_turn_chain_hints:
     lw   $t0, opt_hints
     beqz $t0, play_turn_chain_ask
     move $a0, $s1
@@ -284,6 +325,7 @@ play_turn_chain_ask:
     print_str(str_ask_land)
     move $a0, $s3
     jal  read_square
+    beq  $v0, INPUT_END, play_turn_input_end
     move $s0, $v0               # s0 = ô đích của bước ăn tiếp
     move $a0, $s1
     move $a1, $s0
@@ -312,6 +354,13 @@ play_turn_menu:
     jal  print_board
     j    play_turn_begin
 
+play_turn_bad_number:
+    li   $a0, ERR_RANGE
+    jal  print_error
+    j    play_turn_ask_start
+
+play_turn_input_end:
+    li   $v0, RESULT_QUIT
 play_turn_ret:
     pop($s4)
     pop($s3)
@@ -557,6 +606,7 @@ menu_option_state:
     blt  $s0, NUM_OPTIONS, menu_option_loop
     print_str(str_menu_actions)
     jal  read_number
+    beq  $v0, INPUT_END, menu_input_end
     move $s0, $v0
 
     beqz $s0, menu_back
@@ -607,6 +657,7 @@ menu_restart:                   # main in thông báo và tạo ván mới
 
 menu_quit:
     print_str(str_bye)
+menu_input_end:
     li   $v0, RESULT_QUIT
     j    menu_ret
 
