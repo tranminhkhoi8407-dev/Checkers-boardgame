@@ -35,42 +35,7 @@ Figure~\ref{fig:sys_arch} illustrates the compile-time \code{.include} dependenc
 
 \begin{figure}[H]
 \centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-    node distance=0.8cm and 1.1cm,
-    box/.style={draw=hcmutblue, rounded corners=3pt, fill=hcmutlight!55, align=center, font=\footnotesize, minimum width=3.1cm, minimum height=0.95cm, thick},
-    subbox/.style={draw=slateink!70, rounded corners=3pt, fill=slatebg, align=center, font=\footnotesize, minimum width=3.0cm, minimum height=0.85cm},
-    extbox/.style={draw=okgreen!80!black, rounded corners=3pt, fill=okgreen!10, align=center, font=\footnotesize, minimum width=3.1cm, minimum height=0.85cm},
-    arr/.style={-{Stealth[length=2.4mm]}, thick, color=hcmutblue},
-    darr/.style={-{Stealth[length=2.2mm]}, dashed, thick, color=slateink!80}
-]
-    % Core MIPS modules
-    \node[box, fill=hcmutblue!16, minimum width=3.5cm] (main) {\textbf{\code{src/main.asm}}\\Control Loop, Menu,\\Hints, History, Draw};
-    \node[box, below left=1.25cm and 1.35cm of main] (defs) {\textbf{\code{src/defs.asm}}\\40 \code{.eqv} Constants\\6 Stack/IO Macros};
-    \node[box, below=1.25cm of main] (bio) {\textbf{\code{src/board\_io.asm}}\\64B Board, Transforms,\\Text/Bitmap I/O, Parser};
-    \node[box, below right=1.25cm and 1.35cm of main] (rules) {\textbf{\code{src/rules.asm}}\\Validation, Captures,\\Promotion, Flying Kings};
-
-    % MARS Runtime
-    \node[subbox, right=1.85cm of main, fill=warnamber!10, draw=warnamber!80!black, minimum width=3.6cm] (mars) {\textbf{MARS 4.5 Simulator}\\Run I/O (\code{syscall 1,4,11,14})\\Bitmap Display (\code{0x10040000})};
-
-    % Test & Auxiliary
-    \node[extbox, below=1.1cm of bio, minimum width=3.5cm] (driver) {\textbf{\code{rules\_driver.asm}}\\Arbitrary Board Loader\\Direct Rule Invocation};
-    \node[extbox, left=0.9cm of driver, minimum width=3.1cm] (tfeat) {\textbf{\code{test\_mips.py} \&}\\ \textbf{\code{test\_features.py}}\\35 End-to-End Tests};
-    \node[extbox, right=0.9cm of driver, minimum width=3.1cm] (trules) {\textbf{\code{test\_rules.py} \&}\\ \textbf{\code{test\_advanced...py}}\\19 Unit, Perft \& SWAR};
-
-    % Arrows
-    \draw[arr] (main.south west) -- node[above left, font=\tiny\ttfamily, pos=0.5] {.include} (defs.north east);
-    \draw[arr] (main.south) -- node[right, font=\tiny\ttfamily] {.include} (bio.north);
-    \draw[arr] (main.south east) -- node[above right, font=\tiny\ttfamily, pos=0.5] {.include} (rules.north west);
-    \draw[arr, <->] (main.east) -- node[above, font=\tiny] {stdin / stdout} (mars.west);
-    \draw[arr] (bio.north east) -- ++(0.35, 0.35) -| node[pos=0.22, above, font=\tiny, fill=white, inner sep=1pt] {MMIO heap writes} ([xshift=-0.75cm]mars.south);
-    \draw[darr] (driver) -- (defs.south);
-    \draw[darr] (driver) -- (bio.south);
-    \draw[darr] (driver) -- (rules.south);
-    \draw[darr] (tfeat.west) -- ++(-0.55, 0) |- (main.west);
-    \draw[darr] (trules) -- (driver);
-\end{tikzpicture}%
-}
+\includegraphics[width=\textwidth]{figures/fig_sys_arch.pdf}
 \caption{Modular MIPS32 software architecture, MARS 4.5 runtime interface, and multi-tier verification topology.}
 \label{fig:sys_arch}
 \end{figure}
@@ -123,63 +88,7 @@ Crucially, $f(s) = 33 - s$ is an \textbf{involution} ($f(f(s)) = s$). Therefore,
 
 \begin{figure}[H]
 \centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[scale=0.52, every node/.style={font=\scriptsize}]
-    % Left board: Standard (Black's view)
-    \node[font=\footnotesize\bfseries, color=hcmutblue] at (4, 8.7) {(a) Canonical Numbering (Black's View)};
-    \foreach \r in {0,...,7} {
-        \foreach \c in {0,...,7} {
-            \pgfmathtruncatemacro{\dark}{mod(\r+\c,2)}
-            \pgfmathtruncatemacro{\y}{7-\r}
-            \ifnum\dark=1
-                \fill[hcmutblue!28] (\c,\y) rectangle (\c+1,\y+1);
-                \pgfmathtruncatemacro{\sq}{\r*4 + int(\c/2) + 1}
-                \node[color=slateink] at (\c+0.5,\y+0.5) {\textbf{\sq}};
-            \else
-                \fill[slatebg] (\c,\y) rectangle (\c+1,\y+1);
-            \fi
-            \draw[slateink!45, very thin] (\c,\y) rectangle (\c+1,\y+1);
-        }
-    }
-    % Row/col axes left
-    \foreach \i in {0,...,7} {
-        \node[font=\tiny\ttfamily, color=gray] at (-0.45, 7.5-\i) {r=\i};
-        \node[font=\tiny\ttfamily, color=gray] at (\i+0.5, -0.4) {c=\i};
-    }
-    \node[font=\tiny\bfseries, color=codereg] at (4, 8.2) {Red starts (1--12), moves down ($dr=+1$)};
-    \node[font=\tiny\bfseries, color=slateink] at (4, -0.95) {Black starts (21--32), moves up ($dr=-1$)};
-
-    % Center transform arrow
-    \draw[-{Stealth[length=2.5mm]}, thick, color=hcmutblue] (8.7, 4.4) -- (12.1, 4.4)
-        node[midway, above, align=center, font=\tiny\ttfamily] {180$^\circ$ rot:\\idx' = 63 - idx};
-    \draw[{Stealth[length=2.5mm]}-{Stealth[length=2.5mm]}, thick, color=warnamber] (8.7, 3.1) -- (12.1, 3.1)
-        node[midway, below, align=center, font=\tiny\ttfamily] {opt\_relnum=1:\\s' = 33 - s};
-
-    % Right board: Red's view with opt_relnum=1 (shows both red's number and canonical in parens)
-    \begin{scope}[xshift=13cm]
-        \node[font=\footnotesize\bfseries, color=codereg] at (4, 8.7) {(b) Red's Rotated View (\code{opt\_relnum = 1})};
-        \foreach \r in {0,...,7} {
-            \foreach \c in {0,...,7} {
-                \pgfmathtruncatemacro{\dark}{mod(\r+\c,2)}
-                \pgfmathtruncatemacro{\y}{7-\r}
-                \ifnum\dark=1
-                    \fill[codereg!16] (\c,\y) rectangle (\c+1,\y+1);
-                    \pgfmathtruncatemacro{\sq}{\r*4 + int(\c/2) + 1}
-                    \pgfmathtruncatemacro{\canon}{33 - \sq}
-                    \node[color=codereg!90!black, yshift=2pt] at (\c+0.5,\y+0.5) {\textbf{\sq}};
-                    \node[font=\fontsize{4.8}{5}\selectfont, color=gray, yshift=-4pt] at (\c+0.5,\y+0.5) {(\canon)};
-                \else
-                    \fill[slatebg] (\c,\y) rectangle (\c+1,\y+1);
-                \fi
-                \draw[slateink!45, very thin] (\c,\y) rectangle (\c+1,\y+1);
-            }
-        }
-        \node[font=\tiny\bfseries, color=slateink] at (4, 8.2) {Black pieces now at top (canonical 32--21)};
-        \node[font=\tiny\bfseries, color=codereg] at (4, -0.55) {Red's bottom-left is square 29 (canonical 4)};
-        \node[font=\tiny, color=gray] at (4, -1.0) {Small parentheses show underlying canonical index};
-    \end{scope}
-\end{tikzpicture}%
-}
+\includegraphics[width=\textwidth]{figures/fig_coords.pdf}
 \caption{Canonical $8\times 8$ checkerboard indexing versus Red's $180^\circ$-rotated, player-relative coordinate view. For example, typing \code{24-20} in Red's view translates via $33 - s$ to canonical move \code{9-13}.}
 \label{fig:coords}
 \end{figure}
@@ -214,34 +123,7 @@ Segment / Region & Base Address & Bytes & Contents \& Architectural Notes \\
 
 \begin{figure}[H]
 \centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-    seg/.style={draw=slateink, text width=7.3cm, align=center, font=\footnotesize, inner sep=4pt, rounded corners=1.5pt},
-    lbl/.style={font=\scriptsize\ttfamily, anchor=east, color=slateink!85},
-    note/.style={font=\scriptsize, anchor=west, align=left, text width=4.8cm, color=slateink}
-]
-    % Memory stack vertical diagram
-    \node[seg, fill=hcmutblue!18, minimum height=0.9cm] (text) at (0, 3.7) {\textbf{.text Segment} --- 9,132 B (2,283 instrs)};
-    \node[seg, fill=infoblue!14, minimum height=1.25cm] (data) at (0, 2.25) {\textbf{.data Segment} --- 8,192 B allocated\\[1pt]\scriptsize \code{history}(4000B) $|$ strings(2618B) $|$ I/O(328B)\\\scriptsize board/mask/bmp\_cache(264B) $|$ opts(48B)};
-    \node[seg, fill=okgreen!16, minimum height=1.0cm] (heap) at (0, 0.75) {\textbf{Heap / Bitmap Framebuffer} --- 16,384 B\\[1pt]\scriptsize $64\times 64$ 32-bit RGB pixels (\code{0x10040000}--\code{0x10043FFF})};
-    \node[seg, fill=warnamber!16, minimum height=0.95cm] (stack) at (0, -0.75) {\textbf{Runtime Stack} --- max depth \textbf{116 B} ($\downarrow$)\\[1pt]\scriptsize Zero recursion; 100\% symmetric \code{push}/\code{pop}};
-
-    % Addresses on left
-    \node[lbl] at (-3.95, 3.95) {0x00400000};
-    \node[lbl] at (-3.95, 2.7)  {0x10010000};
-    \node[lbl] at (-3.95, 1.05) {0x10040000};
-    \node[lbl] at (-3.95, -0.45){0x7FFFEFFC};
-
-    % Annotations on right
-    \node[note] at (4.0, 3.7)  {48 procedures: 23 leaf, 25 non-leaf\\Includes 5 SWAR bitboard leaf kernels};
-    \node[note] at (4.0, 2.25) {Indexed option array \code{options[0..8]} +\\64B \code{bmp\_cache} for dirty-tile rendering};
-    \node[note] at (4.0, 0.75) {Written only when \code{opt\_bitmap = 1};\\no \code{sbrk} calls $\Rightarrow$ zero collision risk};
-    \node[note] at (4.0, -0.75){Deepest chain 116 B (Flying Kings);\\standard SWAR path depth is $\le$ 68 B};
-
-    % Gap dots between heap and stack
-    \draw[dotted, thick, gray] (0, 0.22) -- (0, -0.25);
-\end{tikzpicture}%
-}
+\includegraphics[width=\textwidth]{figures/fig_mem_map.pdf}
 \caption{MARS32 virtual memory layout and bounded runtime stack profile of the v2.0 Checkers implementation.}
 \label{fig:mem_map}
 \end{figure}

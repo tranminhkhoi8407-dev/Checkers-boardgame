@@ -3,11 +3,11 @@
 
 To elevate our MARS MIPS32 implementation from a baseline student assignment (v1.0) to a state-of-the-art architecture grounded in draughts engine research and quantitative hardware principles \cite{schaeffer2007,patterson2020,hennessy2019,warren2012}, this section documents three integrated engineering pillars deployed directly in production v2.0: (i) a \textbf{Hybrid 64-Byte Mailbox + 32-Bit Chinook SWAR Bitboard Engine} with Direction-Reversal Duality and branchless SWAR \code{popcount}, (ii) a binary-level MIPS32 opcode mix, 5-stage pipeline hazard, and L1 cache locality audit, and (iii) empirical before-vs.-after live MARS 4.5 benchmarks across every workload.
 
-\subsection{Hybrid Architecture: 64-Byte Mailbox + Deployed 32-Bit Chinook SWAR Bitboards}
+\subsection{Hybrid Architecture: Mailbox + 32-Bit Chinook SWAR Bitboards}
 \label{sec:bitboard_compare}
 High-performance tournament checkers engines---originating with Samuel's 36-bit ghost-square layout \cite{samuel1959}, Jonathan Schaeffer's world-champion solver \emph{Chinook} \cite{schaeffer2007}, Martin Fierz's \emph{Cake} \cite{fierz_cake}, Fabien Letouzey's \emph{Scan} \cite{letouzey_scan}, and modern open-source engines such as \code{rapid-draughts} \cite{rapid_draughts} and \code{py-draughts} \cite{py_draughts}---exploit the fact that English Checkers uses exactly 32 dark squares. Consequently, the entire board state compresses into just \textbf{three 32-bit CPU registers} (12 bytes total): Black occupancy \code{BP} (\code{\$v0}), Red occupancy \code{RP} (\code{\$v1}), and King mask \code{K} (\code{\$t9}), with empty squares derived in two cycles as $\code{E} = \neg(\code{BP} \mid \code{RP})$.
 
-In production v2.0, we deploy a \textbf{hybrid architecture} that achieves the best of both worlds: \code{board[64]} remains the canonical 1-cache-line ASCII mailbox for zero-translation \code{syscall 11} display, Bitmap rendering, and arbitrary-distance Flying King rays, while our pure-leaf packer \code{pack\_bitboards} (\code{src/rules.asm}) extracts \code{(BP, RP, K)} on demand across the 32 dark squares using alternating row-end stride (\code{-1/+1}), zero-stall load-use scheduling (\code{addi \$t0, \$t0, 2}), and bit-5/bit-6 ASCII case decoding (\code{andi \$t4, \$t3, 0xDF}).
+In production v2.0, we deploy a \textbf{hybrid architecture} that achieves the best of both worlds: \code{board[64]} remains the canonical 1-cache-line ASCII mailbox for zero-translation \code{syscall 11} display, Bitmap rendering, and Flying King rays, while our leaf packer \code{pack\_bitboards} in \code{src/rules.asm} extracts \code{(BP, RP, K)} on demand across the 32 dark squares using alternating row-end stride (\code{-1/+1}), zero-stall load-use scheduling (\code{addi \$t0, \$t0, 2}), and bit-5/bit-6 ASCII case decoding (\code{andi \$t4, \$t3, 0xDF}).
 
 \paragraph{3-Shift Chinook Step Operators and Exact Capture Kernels.}
 For canonical bit index $b = s - 1 \in [0, 31]$, row parity flips every 4 bits (even rows $0,2,4,6$ sit in nibbles $0,2,4,6$; odd rows $1,3,5,7$ sit in nibbles $1,3,5,7$). Combining even-row NW and odd-row NE into a single unsigned shift $\gg 4$ yields the compact \textbf{3-shift Chinook step operators} (\code{swar\_up\_steps} and \code{swar\_dn\_steps}):
@@ -46,33 +46,7 @@ By \textbf{Direction-Reversal Duality} (verified across 10,000 random boards $\t
 
 \begin{figure}[H]
 \centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-    box/.style={draw=hcmutblue, rounded corners=2.5pt, fill=hcmutlight!45, align=center, font=\scriptsize, inner sep=4pt, thick},
-    reg/.style={draw=deeppurple, rounded corners=2pt, fill=deeppurple!10, align=center, font=\scriptsize\ttfamily, minimum width=4.8cm, minimum height=0.52cm, thick},
-    arr/.style={-{Stealth[length=2.1mm]}, thick, color=slateink}
-]
-    % Left: Mailbox layer
-    \node[font=\footnotesize\bfseries, color=hcmutblue] at (0, 3.45) {(a) Storage \& I/O Layer: 64-Byte ASCII Mailbox};
-    \node[box, minimum width=5.6cm, minimum height=1.25cm] (mb) at (0, 2.30) {\textbf{\code{board[0..63]} in \code{.data}} (1 L1D cache line)\\\scriptsize \code{"\_r\_r\_r\_r r\_r\_r\_r\_ ... b\_b\_b\_b\_"}\\Direct \code{lbu} $\to$ \code{syscall 11}, Bitmap \& Flying rays};
-    \node[box, fill=slatebg, draw=slateink!70, minimum width=5.6cm] (mbloop) at (0, 0.65) {v1.0 scalar scan (\code{side\_has\_capture}): \textbf{4,408 instrs}\\v2.0 \code{pack\_bitboards} (32 dark sqs): \textbf{455 instrs}};
-    \draw[arr] (mb) -- (mbloop);
-
-    % Center arrow
-    \draw[-{Stealth[length=2.5mm]}, very thick, color=deeppurple] (2.95, 2.30) -- (5.35, 2.30)
-        node[midway, above, align=center, font=\tiny\bfseries, color=deeppurple] {on-demand\\pack};
-
-    % Right: Deployed 32-bit Chinook SWAR Bitboard Core
-    \begin{scope}[xshift=8.65cm]
-        \node[font=\footnotesize\bfseries, color=deeppurple] at (0, 3.45) {(b) Deployed v2.0 Core: 32-Bit Chinook SWAR Engine};
-        \node[reg] (r0) at (0, 2.72) {\$v0 = BP (32-bit Black mask)};
-        \node[reg] (r1) at (0, 2.08) {\$v1 = RP (32-bit Red mask)};
-        \node[reg] (r2) at (0, 1.44) {\$t9 = K\ \ (32-bit King mask)};
-        \node[box, draw=deeppurple, fill=deeppurple!8, minimum width=5.9cm] (swar) at (0, 0.40) {\code{swar\_up/dn\_steps} + \code{swar\_up/dn\_caps} + SWAR \code{popcnt}\\Production MARS cost: \textbf{525 instrs} (\textbf{8.40$\times$} faster),\\\textbf{23.79$\times$} net hints via Chinook Duality};
-        \draw[arr, color=deeppurple] (r2.south) -- (swar.north);
-    \end{scope}
-\end{tikzpicture}%
-}
+\includegraphics[width=\textwidth]{figures/fig_bitboard_vs_mailbox.pdf}
 \caption{Deployed v2.0 hybrid architecture pairing the 64-byte ASCII mailbox (I/O, Bitmap, Flying rays) with the 32-bit Chinook SWAR bitboard engine (mobility, forced capture, bidirectional move hints, and branchless popcount).}
 \label{fig:bitboard_vs_mailbox}
 \end{figure}
@@ -110,67 +84,7 @@ Scanning adjacent decoded instructions across all 2,283 words yields two concret
 
 \begin{figure}[H]
 \centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[
-    st/.style={draw=slateink!75, minimum width=0.92cm, minimum height=0.52cm, font=\scriptsize\bfseries, align=center},
-    pIF/.style={st, fill=hcmutblue!18},
-    pID/.style={st, fill=infoblue!15},
-    pEX/.style={st, fill=okgreen!18},
-    pMEM/.style={st, fill=warnamber!22},
-    pWB/.style={st, fill=deeppurple!16},
-    pSTL/.style={st, fill=codereg!22, text=codereg!90!black},
-    codecol/.style={font=\scriptsize\ttfamily, anchor=east, color=slateink}
-]
-    \node[font=\footnotesize\bfseries, color=codereg, anchor=west] at (-4.9, 3.45) {v1.0 Inner-Loop Load-Use Hazard in \code{draw\_bitmap\_x} (1-Cycle Stall $\times$ 4,096 Pixels/Frame):};
-    \foreach \c in {1,...,8} {
-        \node[font=\scriptsize\bfseries, color=slateink] at (\c*1.0 - 0.5, 2.95) {CC\c};
-    }
-    \node[codecol] at (-0.15, 2.35) {v1.0: lbu \$t3, piece\_mask(\$t3)};
-    \node[pIF]  (r1f) at (0.5, 2.35) {IF};
-    \node[pID]  (r1d) at (1.5, 2.35) {ID};
-    \node[pEX]  (r1e) at (2.5, 2.35) {EX};
-    \node[pMEM] (r1m) at (3.5, 2.35) {MEM};
-    \node[pWB]  (r1w) at (4.5, 2.35) {WB};
-
-    \node[codecol] at (-0.15, 1.65) {v1.0: beqz \$t3, draw\_bitmap\_put};
-    \node[pIF]  (r2f) at (1.5, 1.65) {IF};
-    \node[pID]  (r2d) at (2.5, 1.65) {ID};
-    \node[pSTL] (r2s) at (3.5, 1.65) {STALL};
-    \node[pEX]  (r2e) at (4.5, 1.65) {EX};
-    \node[pMEM] (r2m) at (5.5, 1.65) {MEM};
-    \node[pWB]  (r2w) at (6.5, 1.65) {WB};
-
-    \draw[-{Stealth[length=2.1mm]}, very thick, color=codereg] (r1m.south east) -- (r2e.north west);
-    \node[font=\tiny\bfseries, color=codereg, anchor=west] at (5.05, 2.35) {MEM$\to$EX stall (\$t3 ready end of CC4)};
-
-    \draw[dashed, gray] (-4.9, 1.15) -- (8.3, 1.15);
-    \node[font=\footnotesize\bfseries, color=okgreen!85!black, anchor=west] at (-4.9, 0.85) {Deployed v2.0 Zero-Stall Schedule (\code{src/board\_io.asm:648--651}):};
-
-    \node[codecol] at (-0.15, 0.25) {v2.0: lbu \$t3, 0(\$t5)};
-    \node[pIF]  (s1f) at (0.5, 0.25) {IF};
-    \node[pID]  (s1d) at (1.5, 0.25) {ID};
-    \node[pEX]  (s1e) at (2.5, 0.25) {EX};
-    \node[pMEM] (s1m) at (3.5, 0.25) {MEM};
-    \node[pWB]  (s1w) at (4.5, 0.25) {WB};
-
-    \node[codecol, color=okgreen!75!black] at (-0.15, -0.42) {v2.0: addi \$t5, \$t5, 1 \ (delay slot)};
-    \node[pIF]  at (1.5, -0.42) {IF};
-    \node[pID]  at (2.5, -0.42) {ID};
-    \node[pEX]  at (3.5, -0.42) {EX};
-    \node[pMEM] at (4.5, -0.42) {MEM};
-    \node[pWB]  at (5.5, -0.42) {WB};
-
-    \node[codecol] at (-0.15, -1.09) {v2.0: move \$t2, \$s2; beqz \$t3, ...};
-    \node[pIF]  at (2.5, -1.09) {IF};
-    \node[pID]  at (3.5, -1.09) {ID};
-    \node[pEX]  (s3e) at (4.5, -1.09) {EX};
-    \node[pMEM] at (5.5, -1.09) {MEM};
-    \node[pWB]  at (6.5, -1.09) {WB};
-
-    \draw[-{Stealth[length=2.1mm]}, very thick, color=okgreen!80!black] (s1m.south east) -- (s3e.north west);
-    \node[font=\tiny\bfseries, color=okgreen!80!black, anchor=west] at (5.9, -0.42) {0 stalls (identical schedule in \code{pack\_bb\_sq})};
-\end{tikzpicture}%
-}
+\includegraphics[width=\textwidth]{figures/fig_pipeline_hazard.pdf}
 \caption{MIPS 5-stage pipeline timing comparison between v1.0's inner-loop load-use stall and v2.0's deployed zero-stall instruction schedule in \code{draw\_bitmap\_x} (\code{src/board\_io.asm:648--651}) \cite{patterson2020}.}
 \label{fig:pipeline_hazard}
 \end{figure}

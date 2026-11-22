@@ -15,7 +15,7 @@ Building a non-trivial interactive game at the instruction-set level directly re
 \subsection{Delivered Scope Summary}
 The CO2008 specification distinguishes a \emph{bare-minimum product} (Sections~1--2, capped at 9/10 marks or 8/10 for the Honors program) from \emph{Quality-of-Life (QoL)} and \emph{Advanced Ruleset} extensions (Section~3). Our submission fulfills 100\% of the core requirements and adds ten substantial runtime-configurable extensions via an interactive menu (entering \code{0} at the starting-square prompt), while preserving bit-exact compatibility with automated classic transcript fixtures through the MARS program argument \code{pa classic}.
 
-\begin{keybox}{\faCheckCircle\hspace{0.45em}Executive Summary of Audited Deliverables \& Production v2.0 Upgrades}
+\begin{keybox}{$\checkmark$\hspace{0.45em}Executive Summary of Audited Deliverables \& Production v2.0 Upgrades}
 \footnotesize
 \begin{itemize}[topsep=1pt,itemsep=1.5pt]
     \item \textbf{Modular Hybrid MIPS32 Engine (v2.0):} 2,451 lines across 4 files (\code{defs.asm}, \code{main.asm}, \code{board\_io.asm}, \code{rules.asm}), assembling to \textbf{2,283 basic MIPS32 instructions} (9,132\,B \code{.text}), \textbf{8,192\,B} \code{.data}, and a strictly bounded \textbf{116\,B} call stack with \textbf{0 ABI/liveness violations}.

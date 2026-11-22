@@ -1,8 +1,8 @@
 \clearpage
-\section{Deep Code Audit, Perft Verification, and Differential Fuzzing}
+\section{Deep Audit, Perft Verification, and Differential Fuzzing}
 \label{sec:audit}
 
-\subsection{Multi-Tier Automated Testing, Live MARS Perft, and Differential Fuzzing}
+\subsection{Automated Testing, Live MARS Perft, and Differential Fuzzing}
 \label{sec:testing}
 Every layer of the deployed v2.0 MIPS32 engine was verified autonomously against live \textbf{MARS 4.5} (\code{Mars45.jar}) under OpenJDK Temurin 21.0.13 with strict assembly/runtime exception trapping (\code{ae1 se1}). Beyond the 47 core deterministic \code{pytest} cases, we added two gold-standard board-game and microprocessor verification tiers:
 \begin{enumerate}

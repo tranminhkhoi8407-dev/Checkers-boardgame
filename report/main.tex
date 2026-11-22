@@ -8,13 +8,11 @@
 \usepackage[T5,T1]{fontenc}
 \usepackage[english]{babel}
 \usepackage{lmodern}
-\usepackage{microtype}
 
 \usepackage[a4paper,margin=2.5cm,headheight=28pt,headsep=14pt]{geometry}
 \usepackage{graphicx}
 \usepackage[table]{xcolor}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,calc}
 \usepackage{array}
 \usepackage{tabularx}
 \usepackage{booktabs}
@@ -27,9 +25,7 @@
 \usepackage{subcaption}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
-\usepackage{fontawesome5}
 \usepackage{listings}
-\usepackage[skins,breakable]{tcolorbox}
 \usepackage{hyperref}
 
 % =========================================================
@@ -119,10 +115,13 @@
     skip=6pt
 }
 
+\newsavebox{\hdrlogo}
+\AtBeginDocument{\sbox{\hdrlogo}{\includegraphics[height=0.72cm]{hcmut.png}}}
+
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{%
-    \raisebox{-0.22\height}{\includegraphics[height=0.72cm]{hcmut.png}}%
+    \raisebox{-0.22\height}{\usebox{\hdrlogo}}%
     \hspace{0.25cm}%
     \parbox[c]{11.5cm}{\footnotesize\ttfamily
         Ho Chi Minh City University of Technology\\
@@ -191,25 +190,22 @@
     xrightmargin=0.6em
 }
 
-\newtcolorbox{keybox}[2][hcmutblue]{%
-    enhanced,
-    colback=hcmutlight!42,
-    colframe=#1,
-    coltitle=white,
-    fonttitle=\bfseries\small,
-    title={#2},
-    boxrule=0.6pt,
-    leftrule=3pt,
-    arc=2pt,
-    left=7pt,right=7pt,top=5pt,bottom=5pt,
-    breakable
+\newenvironment{keybox}[2][hcmutblue]{%
+    \par\vspace{5pt}\noindent%
+    \begin{tabular}{|@{\color{#1}\vrule width 2.8pt}@{\hspace{6pt}}>{\columncolor{hcmutlight!45}}p{\dimexpr\textwidth-16.4pt\relax}@{\hspace{6pt}}|}%
+    \hline
+    \rowcolor{#1}\multicolumn{1}{|@{\hspace{6pt}}l@{\hspace{6pt}}|}{\color{white}\bfseries\small\rule[-4pt]{0pt}{15pt}#2}\\%
+    \hline
+    \vspace{2pt}\footnotesize%
+}{%
+    \vspace{2pt}\\%
+    \hline
+    \end{tabular}\par\vspace{5pt}%
 }
 
 \newcommand{\badge}[2]{%
-    \tcbox[on line,boxsep=1.2pt,left=3pt,right=3pt,top=0.5pt,bottom=0.5pt,%
-           colback=#1!12,colframe=#1!70,boxrule=0.4pt,arc=1.5pt]{%
-        \scriptsize\bfseries\color{#1}#2%
-    }%
+    {\setlength{\fboxsep}{1.6pt}\setlength{\fboxrule}{0.45pt}%
+     \fcolorbox{#1!70}{#1!12}{\scriptsize\bfseries\color{#1}\,#2\,}}%
 }
 
 \newcommand{\code}[1]{\texttt{#1}}

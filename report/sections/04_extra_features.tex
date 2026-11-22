@@ -49,7 +49,7 @@ Notice how \code{board\_rotated} couples options~2 and~3 cleanly: \code{opt\_rot
 \begin{itemize}
     \item \textbf{Detailed Error Diagnostics (\code{opt\_detail}):} Every validation failure sets \code{\$v1} to one of 11 symbolic error codes (\code{ERR\_RANGE = 1} through \code{ERR\_BLOCKED = 11}). \code{print\_error} shifts \code{\$a0} left by 2 bits to fetch the matching explanation string from \code{err\_table} in $O(1)$ time, outputting messages such as \emph{``Not a valid move! Pawns can only move forward; only kings move backward. Try again.''}
     \item \textbf{Legal Move Hints (\code{opt\_hints}):} Before the starting-square prompt, \code{print\_movable\_pieces} alerts the player if a forced capture is active and lists all movable squares in player-relative ascending order ($1 \dots 32$). After a valid starting square is entered, \code{print\_landing\_squares} prints all legal destinations (or \code{"none - choose another piece."} and re-prompts without forcing a wasted landing input). During chain captures, \code{print\_landing\_squares} passes \code{\$a2 = 1} to validate exclusively through \code{validate\_chain}.
-    \item \textbf{Standard-Notation Move History (Menu 10):} Each executed step packs four bytes into \code{history[4*k]}: canonical \code{from}, canonical \code{to}, \code{flags} (bit~0: capture, bit~1: chain step), and \code{side}. \code{print\_history} formats multi-jump chains onto a single numbered line (e.g., \code{8. Red 14x23 23x32}), matching Specification Section~1.3 even when Red played using relative square numbers.
+    \item \textbf{Standard-Notation Move History (Menu 10):} Each executed step packs four bytes into the array \code{history[4*k]}: canonical \code{from}, canonical \code{to}, \code{flags} (bit~0: capture, bit~1: chain step), and \code{side}. \code{print\_history} formats multi-jump chains onto a single numbered line (e.g., \code{8. Red 14x23 23x32}), matching Specification Section~1.3 even when Red played using relative square numbers.
     \item \textbf{Mutual Draw Protocol (Menu 11):} \code{draw\_offer} starts at \code{-1}. When side $p$ chooses~11, \code{draw\_offer} becomes $p$; on the opponent's next turn, \code{notify\_draw\_offer} alerts them to accept via menu~11 (\code{RESULT\_DRAW}) or decline implicitly by playing any legal move (\code{decline\_draw\_offer} resets \code{draw\_offer = -1}). Repeating menu~11 on the offering side prints \code{"You have already offered a draw."} rather than self-accepting.
 \end{itemize}
 
@@ -74,29 +74,7 @@ An 8$\times$8 byte sprite mask \code{piece\_mask} encodes \code{0} (background t
 \centering
 \begin{subfigure}[b]{0.22\textwidth}
     \centering
-    \begin{tikzpicture}[scale=0.35]
-        \definecolor{bmDark}{HTML}{567772}
-        \definecolor{bmRed}{HTML}{BE3448}
-        \definecolor{bmGold}{HTML}{F1C972}
-        \foreach \y/\row in {
-            7/{0,0,0,0,0,0,0,0},
-            6/{0,0,1,1,1,1,0,0},
-            5/{0,1,2,1,1,2,1,0},
-            4/{0,1,2,2,2,2,1,0},
-            3/{0,1,1,2,2,1,1,0},
-            2/{0,1,1,1,1,1,1,0},
-            1/{0,0,1,1,1,1,0,0},
-            0/{0,0,0,0,0,0,0,0}%
-        } {
-            \foreach \val [count=\x from 0] in \row {
-                \ifnum\val=0 \fill[bmDark] (\x,\y) rectangle (\x+1,\y+1); \fi
-                \ifnum\val=1 \fill[bmRed]  (\x,\y) rectangle (\x+1,\y+1); \fi
-                \ifnum\val=2 \fill[bmGold] (\x,\y) rectangle (\x+1,\y+1); \fi
-                \draw[white!35!black, ultra thin] (\x,\y) rectangle (\x+1,\y+1);
-                \node[font=\fontsize{4.2}{4.5}\selectfont\ttfamily, color=white] at (\x+0.5,\y+0.5) {\val};
-            }
-        }
-    \end{tikzpicture}
+    \includegraphics[width=\textwidth]{figures/fig_bmp_mask.pdf}
     \caption{\code{piece\_mask[64]}}
     \label{fig:bmp_mask}
 \end{subfigure}

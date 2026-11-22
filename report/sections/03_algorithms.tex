@@ -7,44 +7,7 @@ Execution begins at \code{main} (\code{src/main.asm}, line~104). Before initiali
 
 \begin{figure}[H]
 \centering
-\resizebox{0.96\textwidth}{!}{%
-\begin{tikzpicture}[
-    node distance=0.58cm and 0.95cm,
-    proc/.style={draw=hcmutblue, rounded corners=3pt, fill=hcmutlight!50, align=center, font=\scriptsize, minimum width=2.85cm, minimum height=0.68cm, thick},
-    dec/.style={draw=warnamber!85!black, diamond, aspect=2.1, fill=warnamber!10, align=center, font=\scriptsize, inner sep=1.5pt, thick},
-    term/.style={draw=okgreen!80!black, rounded corners=8pt, fill=okgreen!12, align=center, font=\scriptsize\bfseries, minimum width=2.5cm, minimum height=0.62cm, thick},
-    arr/.style={-{Stealth[length=2.1mm]}, thick, color=slateink}
-]
-    \node[term] (start) {\code{main} $\to$ \code{new\_game}};
-    \node[proc, below=of start] (initp) {\code{print\_board(BLACK)}\\Initialize 12b + 12r};
-    \node[dec, below=of initp] (hasm) {\code{has\_any\_move(turn)}?};
-    \node[proc, right=1.35cm of hasm, fill=codereg!10, draw=codereg] (win) {Announce winner\\(\code{count\_pieces} reason)\\Optional \code{opt\_replay}};
-    \node[proc, below=of hasm] (ask) {\code{play\_turn}: Prompt \code{s}, \code{d}\\(or \code{s=0} $\to$ \code{menu})};
-    \node[dec, below=of ask] (val) {\code{validate\_move}?};
-    \node[proc, left=1.25cm of val, fill=codereg!8, draw=codereg!80] (err) {\code{print\_error(\$v1)}\\Keep same turn};
-    \node[proc, below=of val] (dom) {\code{do\_move(s, d)}\\Move, clear enemy,\\instant promotion};
-    \node[dec, below=of dom] (iscap) {Move was\\\code{CAPTURE}?};
-    \node[dec, right=1.35cm of iscap] (chain) {\code{can\_capture\_from}\\at landing \code{d}?};
-    \node[proc, above=0.65cm of chain, fill=hcmutblue!12] (lock) {\textbf{Chain Lock:} Print board\\Prompt \code{d'} only\\(\code{validate\_chain})};
-    \node[proc, below=0.68cm of iscap] (flip) {\code{print\_board(turn\^{}1)}\\Flip \code{turn $\leftarrow$ turn $\oplus$ 1}};
-
-    \draw[arr] (start) -- (initp);
-    \draw[arr] (initp) -- (hasm);
-    \draw[arr] (hasm) -- node[above, font=\tiny\bfseries] {0 (No)} (win);
-    \draw[arr] (hasm) -- node[right, font=\tiny\bfseries] {1 (Yes)} (ask);
-    \draw[arr] (ask) -- (val);
-    \draw[arr] (val) -- node[above, font=\tiny\bfseries] {INVALID} (err);
-    \draw[arr] (err.north) |- (ask.west);
-    \draw[arr] (val) -- node[right, font=\tiny\bfseries] {STEP / CAP} (dom);
-    \draw[arr] (dom) -- (iscap);
-    \draw[arr] (iscap) -- node[above, font=\tiny\bfseries] {Yes} (chain);
-    \draw[arr] (chain) -- node[right, font=\tiny\bfseries] {1 (Yes)} (lock);
-    \draw[arr] (lock.west) -| ([xshift=0.35cm]dom.east) -- (dom.east);
-    \draw[arr] (iscap) -- node[right, font=\tiny\bfseries] {No (STEP)} (flip);
-    \draw[arr] (chain.south) |- node[below right, font=\tiny\bfseries, pos=0.25] {0 (Done)} (flip.east);
-    \draw[arr] (flip.west) -- ++(-4.65, 0) |- (hasm.west);
-\end{tikzpicture}%
-}
+\includegraphics[width=0.96\textwidth]{figures/fig_fsm.pdf}
 \caption{Main game loop and \code{play\_turn} finite-state control flow, highlighting invalid-move turn retention and the mandatory chain-capture lock loop.}
 \label{fig:fsm}
 \end{figure}
@@ -116,100 +79,7 @@ Figure~\ref{fig:promo_chain} illustrates both verified promotion-chain scenarios
 
 \begin{figure}[H]
 \centering
-\resizebox{0.96\textwidth}{!}{%
-\begin{tikzpicture}[scale=0.49]
-    % Panel (a): Assignment Figure 8 (Red pawn 15 -> 24 -> 31(R!) -> 22 -> 13)
-    \begin{scope}
-        \node[font=\footnotesize\bfseries, color=hcmutblue] at (4, 8.6) {(a) Spec Fig.~8: \code{15x24 24x31 31x22 22x13}};
-        \foreach \r in {0,...,7} {
-            \foreach \c in {0,...,7} {
-                \pgfmathtruncatemacro{\dark}{mod(\r+\c,2)}
-                \pgfmathtruncatemacro{\y}{7-\r}
-                \ifnum\dark=1
-                    \fill[hcmutblue!26] (\c,\y) rectangle (\c+1,\y+1);
-                \else
-                    \fill[slatebg] (\c,\y) rectangle (\c+1,\y+1);
-                \fi
-                \draw[slateink!35, very thin] (\c,\y) rectangle (\c+1,\y+1);
-            }
-        }
-        % Pieces: 15=(3,4), 19=(4,5), 27=(6,5), 26=(6,3), 17=(4,1)
-        % Note y = 7 - r
-        % Captured Black pawns: 19=(5,3), 27=(5,1), 26=(3,1), 17=(1,3)
-        \foreach \cx/\cy/\lbl in {5.5/3.5/19, 5.5/1.5/27, 3.5/1.5/26, 1.5/3.5/17} {
-            \fill[slateink] (\cx,\cy) circle (0.34);
-            \node[white, font=\tiny\bfseries] at (\cx,\cy) {\lbl};
-        }
-        % Starting Red pawn at 15=(4,4)
-        \fill[codereg] (4.5,4.5) circle (0.36);
-        \node[white, font=\tiny\bfseries] at (4.5,4.5) {15};
-        % Intermediate landing 24=(6,2)
-        \draw[codereg, dashed, thick] (6.5,2.5) circle (0.32);
-        \node[codereg, font=\tiny\bfseries] at (6.5,2.5) {24};
-        % Crowned Red King at 31=(4,0)
-        \fill[codereg] (4.5,0.5) circle (0.36);
-        \fill[warnamber!60!yellow] (4.5,0.5) circle (0.18);
-        \node[slateink, font=\tiny\bfseries] at (4.5,0.5) {R};
-        % Intermediate 22=(2,2) and final 13=(0,4)
-        \draw[codereg, dashed, thick] (2.5,2.5) circle (0.32);
-        \node[codereg, font=\tiny\bfseries] at (2.5,2.5) {22};
-        \fill[codereg!85] (0.5,4.5) circle (0.36);
-        \fill[warnamber!60!yellow] (0.5,4.5) circle (0.24);
-        \node[slateink, font=\tiny\bfseries] at (0.5,4.5) {13};
-
-        % Jump arrows
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=warnamber] (4.7,4.3) -- (6.3,2.7);
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=warnamber] (6.3,2.3) -- (4.7,0.7);
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=okgreen!85!black] (4.3,0.7) -- (2.7,2.3);
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=okgreen!85!black] (2.3,2.7) -- (0.7,4.3);
-
-        \node[font=\tiny, align=center, color=slateink] at (4, -0.75) {Orange: forward pawn jumps ($15{\to}24{\to}31$)\\Green: instant backward king jumps ($31{\to}22{\to}13$)};
-    \end{scope}
-
-    % Panel (b): test_001 live chain (Black pawn 11 -> 2(B!) -> 9 -> 18)
-    \begin{scope}[xshift=12.6cm]
-        \node[font=\footnotesize\bfseries, color=hcmutblue] at (4, 8.6) {(b) Fixture \code{test\_001}: \code{11x2 2x9 9x18}};
-        \foreach \r in {0,...,7} {
-            \foreach \c in {0,...,7} {
-                \pgfmathtruncatemacro{\dark}{mod(\r+\c,2)}
-                \pgfmathtruncatemacro{\y}{7-\r}
-                \ifnum\dark=1
-                    \fill[hcmutblue!26] (\c,\y) rectangle (\c+1,\y+1);
-                \else
-                    \fill[slatebg] (\c,\y) rectangle (\c+1,\y+1);
-                \fi
-                \draw[slateink!35, very thin] (\c,\y) rectangle (\c+1,\y+1);
-            }
-        }
-        % Captured Red pawns: 7=(1,4)->y=6,c=4; 6=(1,2)->y=6,c=2; 14=(3,2)->y=4,c=2
-        \foreach \cx/\cy/\lbl in {4.5/6.5/7, 2.5/6.5/6, 2.5/4.5/14} {
-            \fill[codereg] (\cx,\cy) circle (0.34);
-            \node[white, font=\tiny\bfseries] at (\cx,\cy) {\lbl};
-        }
-        % Start Black pawn at 11=(2,5)->y=5,c=5
-        \fill[slateink] (5.5,5.5) circle (0.36);
-        \node[white, font=\tiny\bfseries] at (5.5,5.5) {11};
-        % Crowned Black King at 2=(0,3)->y=7,c=3
-        \fill[slateink] (3.5,7.5) circle (0.36);
-        \fill[warnamber!60!yellow] (3.5,7.5) circle (0.22);
-        \node[slateink, font=\tiny\bfseries] at (3.5,7.5) {B};
-        % Intermediate 9=(2,1)->y=5,c=1
-        \draw[slateink, dashed, thick] (1.5,5.5) circle (0.32);
-        \node[slateink, font=\tiny\bfseries] at (1.5,5.5) {9};
-        % Final 18=(4,3)->y=3,c=3
-        \fill[slateink] (3.5,3.5) circle (0.36);
-        \fill[warnamber!60!yellow] (3.5,3.5) circle (0.24);
-        \node[slateink, font=\tiny\bfseries] at (3.5,3.5) {18};
-
-        % Jump arrows
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=warnamber] (5.3,5.7) -- (3.7,7.3);
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=okgreen!85!black] (3.3,7.3) -- (1.7,5.7);
-        \draw[-{Stealth[length=2.2mm]}, very thick, color=okgreen!85!black] (1.7,5.3) -- (3.3,3.7);
-
-        \node[font=\tiny, align=center, color=slateink] at (4, -0.75) {Black pawn crowns at \code{2} (\code{11x2}), then immediately\\captures backward \code{2x9} and \code{9x18} in one turn};
-    \end{scope}
-\end{tikzpicture}%
-}
+\includegraphics[width=0.96\textwidth]{figures/fig_promo_chain.pdf}
 \caption{Instant promotion followed by immediate backward chain captures in (a) Specification Figure~8 and (b) full-game benchmark \code{test\_001}.}
 \label{fig:promo_chain}
 \end{figure}
