@@ -1,18 +1,19 @@
 ###############################################################################
-# board_io.asm - BÀN CỜ, HIỂN THỊ VÀ NHẬP LIỆU (phần phụ trách: Hậu)
+# board_io.asm - BOARD STATE, RENDERING, AND INPUT (Owner: Nguyen Thanh Hau)
 #
-#   - Lưu bàn cờ, khởi tạo đúng 12 quân mỗi bên.
-#   - Đổi giữa số ô 1..32, (hàng, cột) và chỉ số mảng.
-#   - In bàn cờ: kiểu chuẩn của đề, kiểu đẹp (khung + bảng số ô), xoay theo
-#     người đang đi, và vẽ lên Bitmap Display của MARS.
-#   - Đọc số an toàn: gõ chữ, để trống, số quá lớn... đều không làm crash.
-#   - In thông báo lỗi (ngắn gọn hoặc chi tiết).
+#   - Board storage and initialization (12 pieces per side).
+#   - Conversions between square numbers 1..32, (row, col), and array index.
+#   - Board rendering: classic format, framed board with square numbers,
+#     180-degree player rotation, and MARS Bitmap Display rendering.
+#   - Fault-tolerant input parsing: letters, blank lines, overflow, and EOF
+#     never crash the simulator.
+#   - Concise and detailed error message reporting.
 #
-# File này được .include từ main.asm. Quy ước gọi hàm giống rules.asm.
+# Included by main.asm; follows the same MIPS calling conventions as rules.asm.
 ###############################################################################
 
 .data
-# Bàn cờ 8x8, phần tử [r*8 + c]. '_' = ô trắng không dùng, '0' = ô tối trống.
+# 8x8 board at board[r*8 + c]. '_' = unused light square, '0' = empty dark square.
 board:          .space 64
 start_board:    .ascii "_r_r_r_r"
                 .ascii "r_r_r_r_"
@@ -23,8 +24,8 @@ start_board:    .ascii "_r_r_r_r"
                 .ascii "_b_b_b_b"
                 .ascii "b_b_b_b_"
 
-# Mặt nạ quân cờ trong ô 8x8 điểm của Bitmap Display.
-# 0 = nền, 1 = thân quân, 2 = hình vương miện (chỉ tô vàng cho vua).
+# 8x8 pixel sprite mask for Bitmap Display tiles.
+# 0 = tile background, 1 = piece body, 2 = crown (painted gold for kings only).
 piece_mask:     .byte 0,0,0,0,0,0,0,0
                 .byte 0,0,1,1,1,1,0,0
                 .byte 0,1,2,1,1,2,1,0
@@ -60,7 +61,7 @@ str_pretty_line:  .asciiz "  +---+---+---+---+---+---+---+---+    +---+---+---+-
 str_pretty_gap:   .asciiz "    |"
 str_pretty_foot:  .asciiz "  .  Empty square     |     0  Settings (at the starting-square prompt)\n"
 
-# Câu giải thích cho từng mã lỗi (dùng khi bật "Detailed error messages")
+# Detailed diagnostic messages indexed by ERR_* codes (when opt_detail = 1)
 err_table:      .word err_txt_none, err_txt_range, err_txt_empty, err_txt_not_yours
                 .word err_txt_occupied, err_txt_diagonal, err_txt_backward
                 .word err_txt_too_far, err_txt_no_enemy, err_txt_must_capture
@@ -81,7 +82,7 @@ err_txt_blocked:     .asciiz "The path is blocked (you may jump over exactly one
 .text
 
 # -----------------------------------------------------------------------------
-# init_board() - chép thế cờ ban đầu (12 quân mỗi bên) vào board
+# init_board() - copy initial 12-vs-12 position from start_board into board
 # -----------------------------------------------------------------------------
 init_board:
     li   $t0, 0
@@ -93,26 +94,26 @@ init_board_loop:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# sq_to_rc(a0 = ô 1..32) -> v0 = hàng, v1 = cột
-#   hàng = (s-1)/4 ; cột = 2*((s-1)%4) + (hàng chẵn ? 1 : 0)
+# sq_to_rc(a0 = square 1..32) -> v0 = row, v1 = col
+#   row = (s-1)/4 ; col = 2*((s-1)%4) + (row even ? 1 : 0)
 # -----------------------------------------------------------------------------
 sq_to_rc:
     addi $t0, $a0, -1
-    srl  $v0, $t0, 2            # hàng = (s-1) / 4
+    srl  $v0, $t0, 2            # row = (s-1) / 4
     andi $t1, $t0, 3
     sll  $v1, $t1, 1            # 2 * ((s-1) % 4)
     andi $t2, $v0, 1
-    xori $t2, $t2, 1            # hàng chẵn -> ô tối lệch sang phải 1 cột
+    xori $t2, $t2, 1            # even rows shift dark squares right by 1 col
     add  $v1, $v1, $t2
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# idx_to_sq(a0 = chỉ số 0..63 của một ô tối) -> v0 = số ô 1..32
-#   s = hàng*4 + cột/2 + 1
+# idx_to_sq(a0 = dark-square index 0..63) -> v0 = square number 1..32
+#   s = row*4 + col/2 + 1
 # -----------------------------------------------------------------------------
 idx_to_sq:
-    srl  $t0, $a0, 3            # hàng
-    andi $t1, $a0, 7            # cột
+    srl  $t0, $a0, 3            # row
+    andi $t1, $a0, 7            # col
     sll  $v0, $t0, 2
     srl  $t1, $t1, 1
     add  $v0, $v0, $t1
@@ -120,7 +121,7 @@ idx_to_sq:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# get_cell(a0 = hàng, a1 = cột) -> v0 = ký tự trên bàn, hoặc 0 nếu ngoài bàn
+# get_cell(a0 = row, a1 = col) -> v0 = cell char, or 0 if out of bounds
 # -----------------------------------------------------------------------------
 get_cell:
     li   $v0, 0
@@ -135,7 +136,7 @@ get_cell_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# square_piece(a0 = ô 1..32) -> v0 = ký tự trên ô đó
+# square_piece(a0 = square 1..32) -> v0 = cell char on that square
 # -----------------------------------------------------------------------------
 square_piece:
     push($ra)
@@ -147,7 +148,7 @@ square_piece:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# count_pieces(a0 = side) -> v0 = số quân (cả vua) còn lại của bên đó
+# count_pieces(a0 = side) -> v0 = remaining piece count (pawns + kings) for side
 # -----------------------------------------------------------------------------
 count_pieces:
     push($ra)
@@ -155,8 +156,8 @@ count_pieces:
     push($s1)
     push($s2)
     move $s0, $a0
-    li   $s1, 0                 # chỉ số ô
-    li   $s2, 0                 # số quân
+    li   $s1, 0                 # board index
+    li   $s2, 0                 # piece counter
 count_pieces_loop:
     lbu  $a0, board($s1)
     move $a1, $s0
@@ -172,8 +173,8 @@ count_pieces_loop:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# view_index(a0 = hàng hiển thị, a1 = cột hiển thị, a2 = có xoay?) -> v0 = chỉ số
-# Xoay 180 độ: ô (r, c) hiện ở vị trí (7-r, 7-c), tức chỉ số 63 - i.
+# view_index(a0 = display row, a1 = display col, a2 = rotated?) -> v0 = index
+# 180-degree rotation maps (r, c) to (7-r, 7-c), i.e., flat index 63 - i.
 # -----------------------------------------------------------------------------
 view_index:
     sll  $v0, $a0, 3
@@ -185,20 +186,20 @@ view_index_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# board_rotated(a0 = side xem bàn) -> v0 = 1 nếu cần xoay bàn cho bên đó
-# Khi Đỏ dùng số ô riêng, xoay luôn bàn để ô 29 ở góc dưới bên trái.
+# board_rotated(a0 = viewing side) -> v0 = 1 if board should rotate for side
+# Enabling Red's own numbering also activates rotation so square 29 is bottom-left.
 # -----------------------------------------------------------------------------
 board_rotated:
     lw   $v0, opt_rotate
     lw   $t0, opt_relnum
     or   $v0, $v0, $t0
-    and  $v0, $v0, $a0          # side Đỏ = 1
+    and  $v0, $v0, $a0          # SIDE_RED = 1
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# view_square(a0 = số ô, a1 = side) -> v0 = số ô theo cách đánh số của side
-# Khi bật "Player-relative numbering", Đỏ dùng số ô của riêng mình
-# (ô 29 luôn ở góc dưới bên trái): số thật = 33 - số của Đỏ, và ngược lại.
+# view_square(a0 = square, a1 = side) -> v0 = square in side's numbering
+# Involutive transform: when Red uses player-relative numbering (bottom-left
+# is square 29), canonical = 33 - relative and vice versa.
 # -----------------------------------------------------------------------------
 view_square:
     move $v0, $a0
@@ -213,18 +214,18 @@ view_square_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# read_input_line() -> v0 = độ dài dòng, INPUT_INVALID, hoặc INPUT_END.
-# Đọc từ stdin bằng syscall 14 để phát hiện EOF trên MARS CLI. Cùng syscall
-# này đọc từ Run I/O trên MARS GUI. Giữ phần chưa đọc của mỗi khối cho lần sau.
-# Nếu dòng quá dài, bỏ tới hết dòng để lần đọc sau vẫn bắt đầu đúng chỗ.
+# read_input_line() -> v0 = line length, INPUT_INVALID, or INPUT_END.
+# Reads stdin via syscall 14 (fd=0) to detect EOF reliably on MARS CLI while
+# also supporting Run I/O on MARS GUI. Retains unread bytes across calls and
+# drains overlong lines up to '\n' so subsequent reads stay synchronized.
 # -----------------------------------------------------------------------------
 read_input_line:
-    li   $t0, 0                 # độ dài dòng (bão hòa tại INPUT_SIZE + 1)
+    li   $t0, 0                 # line length (saturates at INPUT_SIZE + 1)
 read_line_next:
     lw   $t1, input_next
     lw   $t2, input_end
     blt  $t1, $t2, read_line_byte
-    li   $a0, 0                 # file descriptor stdin
+    li   $a0, 0                 # stdin file descriptor
     la   $a1, input_chunk
     li   $a2, INPUT_CHUNK_SIZE
     li   $v0, 14
@@ -244,7 +245,7 @@ read_line_count:
     addi $t0, $t0, 1
     j    read_line_next
 read_line_end:
-    beqz $t0, read_line_eof       # một dòng cuối không có '\n' vẫn được xét
+    beqz $t0, read_line_eof       # allow final line without trailing '\n'
 read_line_finish:
     li   $v0, INPUT_INVALID
     bgt  $t0, INPUT_SIZE, read_line_ret
@@ -252,7 +253,7 @@ read_line_finish:
     addi $t1, $t0, -1
     lbu  $t2, input_line($t1)
     bne  $t2, '\r', read_line_terminate
-    move $t0, $t1               # bỏ CR cuối dòng để hỗ trợ CRLF
+    move $t0, $t1               # strip trailing CR for CRLF compatibility
 read_line_terminate:
     bge  $t0, INPUT_SIZE, read_line_ret
     sb   $zero, input_line($t0)
@@ -264,17 +265,17 @@ read_line_eof:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# read_number() -> v0 = số nguyên không âm, INPUT_INVALID, hoặc INPUT_END.
+# read_number() -> v0 = non-negative integer, INPUT_INVALID, or INPUT_END.
 #
-# Chấp nhận khoảng trắng ở đầu/cuối dòng. Số lớn hơn 9999 được giữ ở 9999.
+# Accepts leading/trailing spaces or tabs. Values > 9999 clamp safely to 9999.
 # -----------------------------------------------------------------------------
 read_number:
     push($ra)
     jal  read_input_line
     bltz $v0, read_number_ret
     la   $t0, input_line
-    addu $t3, $t0, $v0          # cuối dòng thật, kể cả khi có byte NUL ở giữa
-read_number_lead:               # bỏ khoảng trắng ở đầu
+    addu $t3, $t0, $v0          # true end of line (rejects embedded NUL bytes)
+read_number_lead:               # skip leading whitespace
     lbu  $t1, 0($t0)
     beq  $t1, ' ', read_number_lead_next
     bne  $t1, '\t', read_number_digits_init
@@ -282,8 +283,8 @@ read_number_lead_next:
     addi $t0, $t0, 1
     j    read_number_lead
 read_number_digits_init:
-    li   $v0, 0                 # giá trị
-    li   $t2, 0                 # số chữ số đã đọc
+    li   $v0, 0                 # parsed value
+    li   $t2, 0                 # digit count
 read_number_digits:
     lbu  $t1, 0($t0)
     blt  $t1, '0', read_number_tail
@@ -298,7 +299,7 @@ read_number_digits:
 read_number_cap:
     li   $v0, 9999
     j    read_number_digits
-read_number_tail:               # sau số chỉ được có khoảng trắng
+read_number_tail:               # only whitespace allowed after digits
     beq  $t1, ' ', read_number_tail_next
     beq  $t1, '\t', read_number_tail_next
     j    read_number_end
@@ -316,8 +317,8 @@ read_number_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# read_square(a0 = side đang nhập) -> v0 = số ô thật (1..32), 0 (mở menu),
-# hoặc mã kết thúc / giá trị không hợp lệ. Tự đổi cách đánh số của người chơi.
+# read_square(a0 = active side) -> v0 = canonical square (1..32), 0 (menu),
+# or INPUT_INVALID / INPUT_END. Automatically translates player-relative input.
 # -----------------------------------------------------------------------------
 read_square:
     push($ra)
@@ -332,7 +333,7 @@ read_square:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_side(a0 = side) - in "Black" hoặc "Red"
+# print_side(a0 = side) - print "Black" or "Red"
 # -----------------------------------------------------------------------------
 print_side:
     la   $t0, str_black
@@ -345,8 +346,8 @@ print_side_go:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_error(a0 = mã lỗi) - báo nước đi không hợp lệ
-# Mặc định in đúng câu của đề; khi bật "Detailed error messages" thì giải thích.
+# print_error(a0 = error code) - report an invalid move
+# Prints standard message by default; prints detailed reason when opt_detail=1.
 # -----------------------------------------------------------------------------
 print_error:
     lw   $t0, opt_detail
@@ -364,7 +365,7 @@ print_error_detail:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_board(a0 = side sắp đi) - in bàn cờ theo các tùy chọn đang bật
+# print_board(a0 = upcoming side) - render board according to active options
 # -----------------------------------------------------------------------------
 print_board:
     push($ra)
@@ -372,7 +373,7 @@ print_board:
     push($s1)
     move $s0, $a0
     jal  board_rotated
-    move $s1, $v0               # s1 = có xoay bàn không
+    move $s1, $v0               # s1 = rotated flag
     lw   $t0, opt_pretty
     bnez $t0, print_board_fancy
     move $a0, $s1
@@ -395,7 +396,7 @@ print_board_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_board_rules() - hiển thị hai tùy chọn luật áp dụng cho bàn cờ hiện tại
+# print_board_rules() - print title and active king/capture ruleset banner
 # -----------------------------------------------------------------------------
 print_board_rules:
     print_str(str_pretty_title)
@@ -418,18 +419,18 @@ print_board_capture_rule:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_board_plain(a0 = có xoay?) - in đúng định dạng của đề:
-#   8 dòng, mỗi dòng 8 ký tự cách nhau bởi dấu cách.
+# print_board_plain(a0 = rotated?) - print specification's compact format:
+#   8 lines, 8 space-separated cell characters per line.
 # -----------------------------------------------------------------------------
 print_board_plain:
     push($ra)
     push($s0)
     push($s1)
     push($s2)
-    move $s2, $a0               # s2 = có xoay?
-    li   $s0, 0                 # s0 = hàng hiển thị
+    move $s2, $a0               # s2 = rotated flag
+    li   $s0, 0                 # s0 = display row
 print_plain_row:
-    li   $s1, 0                 # s1 = cột hiển thị
+    li   $s1, 0                 # s1 = display col
 print_plain_col:
     move $a0, $s0
     move $a1, $s1
@@ -453,9 +454,9 @@ print_plain_eol:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_board_pretty(a0 = side sắp đi, a1 = có xoay?)
-# In bàn cờ có khung, bên cạnh là bảng số ô (theo cách đánh số của người chơi)
-# và số quân còn lại của mỗi bên.
+# print_board_pretty(a0 = upcoming side, a1 = rotated?)
+# Renders framed position grid side-by-side with playable square numbers (in
+# the active player's numbering) and live piece counts for both sides.
 # -----------------------------------------------------------------------------
 print_board_pretty:
     push($ra)
@@ -463,8 +464,8 @@ print_board_pretty:
     push($s1)
     push($s2)
     push($s3)
-    move $s0, $a0               # s0 = side sắp đi
-    move $s1, $a1               # s1 = có xoay?
+    move $s0, $a0               # s0 = viewing side
+    move $s1, $a1               # s1 = rotated flag
 
     print_str(str_pretty_head1)
     li   $a0, SIDE_BLACK
@@ -481,13 +482,13 @@ print_pretty_top:
     print_str(str_pretty_cols)
     print_str(str_pretty_line)
 
-    li   $s2, 0                 # s2 = hàng hiển thị
+    li   $s2, 0                 # s2 = display row
 print_pretty_row:
     print_char(' ')
     print_char(' ')
     print_char('|')
-    li   $s3, 0                 # s3 = cột hiển thị
-print_pretty_piece:             # nửa trái: quân cờ
+    li   $s3, 0                 # s3 = display col
+print_pretty_piece:             # left panel: board pieces
     move $a0, $s2
     move $a1, $s3
     move $a2, $s1
@@ -511,7 +512,7 @@ print_pretty_piece_end:
 
     print_str(str_pretty_gap)
     li   $s3, 0
-print_pretty_number:            # nửa phải: số ô
+print_pretty_number:            # right panel: playable square numbers
     move $a0, $s2
     move $a1, $s3
     move $a2, $s1
@@ -553,10 +554,10 @@ print_pretty_number_end:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# draw_bitmap(a0 = có xoay?) - vẽ bàn cờ lên Bitmap Display của MARS.
-# Cài đặt trong MARS: Tools > Bitmap Display, Unit Width/Height = 8,
+# draw_bitmap(a0 = rotated?) - render board to MARS Bitmap Display.
+# MARS setup: Tools > Bitmap Display, Unit Width/Height = 8,
 # Display Width/Height = 512, Base address = 0x10040000 (heap), Connect to MIPS.
-# Màn hình 64x64 điểm, mỗi ô cờ 8x8 điểm, mỗi điểm là một word màu 0x00RRGGBB.
+# Framebuffer is 64x64 units (8x8 per tile), 1 32-bit 0x00RRGGBB word per unit.
 # -----------------------------------------------------------------------------
 draw_bitmap:
     push($s0)
@@ -567,24 +568,24 @@ draw_bitmap:
     push($s5)
     push($s6)
     push($s7)
-    move $s7, $a0               # s7 = có xoay?
-    li   $s0, 0                 # s0 = hàng hiển thị
+    move $s7, $a0               # s7 = rotated flag
+    li   $s0, 0                 # s0 = display row
 draw_bitmap_row:
-    li   $s1, 0                 # s1 = cột hiển thị
+    li   $s1, 0                 # s1 = display col
 draw_bitmap_col:
-    sll  $t0, $s0, 3            # chỉ số ô thật (giống view_index)
+    sll  $t0, $s0, 3            # canonical cell index (inline view_index)
     add  $t0, $t0, $s1
     beqz $s7, draw_bitmap_cell
     li   $t1, 63
     sub  $t0, $t1, $t0
 draw_bitmap_cell:
     lbu  $t1, board($t0)
-    li   $s2, COLOR_DARK        # s2 = màu nền ô
+    li   $s2, COLOR_DARK        # s2 = tile background color
     bne  $t1, UNUSED, draw_bitmap_piece
     li   $s2, COLOR_LIGHT
 draw_bitmap_piece:
-    li   $s3, 0                 # s3 = màu quân (0 = không có quân)
-    li   $s4, 0                 # s4 = có phải vua?
+    li   $s3, 0                 # s3 = piece color (0 = empty)
+    li   $s4, 0                 # s4 = king flag
     beq  $t1, PAWN_BLACK, draw_bitmap_black
     beq  $t1, KING_BLACK, draw_bitmap_bking
     beq  $t1, PAWN_RED, draw_bitmap_red
@@ -600,12 +601,12 @@ draw_bitmap_rking:
 draw_bitmap_red:
     li   $s3, COLOR_RED
 
-draw_bitmap_units:              # tô 8x8 điểm của ô (y = s5, x = s6)
+draw_bitmap_units:              # draw 8x8 pixels of current tile (y=s5, x=s6)
     li   $s5, 0
 draw_bitmap_y:
     li   $s6, 0
 draw_bitmap_x:
-    move $t2, $s2               # t2 = màu của điểm
+    move $t2, $s2               # t2 = pixel RGB word
     beqz $s3, draw_bitmap_put
     sll  $t3, $s5, 3
     add  $t3, $t3, $s6
@@ -616,13 +617,13 @@ draw_bitmap_x:
     beqz $s4, draw_bitmap_put
     li   $t2, COLOR_KING
 draw_bitmap_put:
-    sll  $t4, $s0, 3            # hàng điểm = hàng ô*8 + y
+    sll  $t4, $s0, 3            # pixel row = tile_row*8 + y
     add  $t4, $t4, $s5
-    sll  $t4, $t4, 6            # * 64 điểm mỗi hàng
-    sll  $t5, $s1, 3            # cột điểm = cột ô*8 + x
+    sll  $t4, $t4, 6            # * 64 units per framebuffer row
+    sll  $t5, $s1, 3            # pixel col = tile_col*8 + x
     add  $t5, $t5, $s6
     add  $t4, $t4, $t5
-    sll  $t4, $t4, 2            # * 4 byte mỗi điểm
+    sll  $t4, $t4, 2            # * 4 bytes per word
     li   $t5, BITMAP_BASE
     add  $t4, $t4, $t5
     sw   $t2, 0($t4)

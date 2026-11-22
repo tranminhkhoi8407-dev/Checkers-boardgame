@@ -1,19 +1,20 @@
 ###############################################################################
-# rules_driver.asm - chương trình kiểm thử luật (rules.asm) bằng thế cờ dựng sẵn
+# rules_driver.asm - standalone unit-test harness for rules.asm
 #
-# Đọc lệnh từ stdin (mỗi số một dòng) rồi gọi thẳng các hàm của rules.asm:
-#   1            nạp bàn cờ: 8 dòng tiếp theo, mỗi dòng 8 ký tự (_ 0 b r B R)
-#   2 s d side   classify_move     -> in "type err"
-#   3 s d side   validate_move     -> in "type err"
-#   4 s d side   validate_chain    -> in "type err"
-#   5 s side     can_capture_from  -> in 0/1
-#   6 side       has_any_move      -> in 0/1
-#   7 s d        do_move           -> in "promoted" rồi in bàn cờ
-#   8 k v        đặt tùy chọn thứ k (1..9) = v
-#   9 side       side_has_capture  -> in 0/1
-#  10 side       count_pieces      -> in số quân
-#   0            kết thúc
-# Chạy: java -jar Mars45.jar nc tests/unit/rules_driver.asm < lệnh.txt
+# Reads integer commands from stdin (one per line) and invokes rules.asm
+# routines directly on arbitrary injected board positions:
+#   1            load board: next 8 lines, 8 chars each (_ 0 b r B R)
+#   2 s d side   classify_move     -> prints "type err"
+#   3 s d side   validate_move     -> prints "type err"
+#   4 s d side   validate_chain    -> prints "type err"
+#   5 s side     can_capture_from  -> prints 0/1
+#   6 side       has_any_move      -> prints 0/1
+#   7 s d        do_move           -> prints "promoted" then plain board
+#   8 k v        set option k (1..9) = v
+#   9 side       side_has_capture  -> prints 0/1
+#  10 side       count_pieces      -> prints piece count
+#   0            exit
+# Run: java -jar Mars45.jar nc tests/unit/rules_driver.asm < commands.txt
 ###############################################################################
 .include "../../src/defs.asm"
 
@@ -49,11 +50,11 @@ driver_loop:
     syscall
 
 cmd_load:
-    li   $s0, 0                 # hàng
+    li   $s0, 0                 # row
 cmd_load_row:
     jal  read_input_line
     bne  $v0, 8, driver_bad_row
-    li   $s1, 0                 # cột
+    li   $s1, 0                 # col
 cmd_load_col:
     lbu  $t0, input_line($s1)
     sll  $t1, $s0, 3
@@ -129,7 +130,7 @@ cmd_option:
     sw   $v0, options($t0)
     j    driver_loop
 
-# read_three: đọc 3 số vào a0, a1, a2
+# read_three: read 3 integers into $a0, $a1, $a2
 read_three:
     push($ra)
     jal  read_number

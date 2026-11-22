@@ -1,28 +1,29 @@
 ###############################################################################
-# rules.asm - LUẬT CHƠI (phần phụ trách: Khôi)
+# rules.asm - GAME RULES ENGINE (Owner: Tran Minh Khoi)
 #
-# Kiểm tra nước đi, đi thường, ăn quân, phong vua, ăn liên hoàn, bắt buộc ăn
-# và biến thể vua bay. File này được .include từ main.asm, không chạy riêng.
+# Move validation, normal steps, captures, king promotion, mandatory chain
+# captures, forced first capture, and flying kings variant. Included by
+# main.asm (not assembled standalone).
 #
-# Quy ước gọi hàm (chuẩn MIPS):
-#   - Tham số $a0..$a3, kết quả $v0 (và $v1 nếu có).
-#   - Hàm được gọi phải giữ nguyên $s0..$s7, $sp, $ra của hàm gọi.
-#   - $t*, $a*, $v* có thể bị thay đổi sau mỗi lần gọi hàm.
+# Calling convention (standard MIPS32 ABI):
+#   - Arguments in $a0..$a3; return value in $v0 (and $v1 when applicable).
+#   - Callee must preserve $s0..$s7, $sp, and $ra.
+#   - $t*, $a*, and $v* are caller-saved.
 #
-# Cách đánh số: ô 1..32 theo ký hiệu chuẩn (phía Đen ở dưới). Bàn cờ lưu trong
-# mảng 64 byte "board" (board_io.asm), phần tử board[r*8 + c].
-#   Đen  (side 0): quân 'b', vua 'B', đi lên (hàng giảm), phong vua ở hàng 0.
-#   Đỏ   (side 1): quân 'r', vua 'R', đi xuống (hàng tăng), phong vua ở hàng 7.
+# Numbering: canonical squares 1..32 (Black at the bottom). Board stored in
+# 64-byte array "board" (board_io.asm) at index r*8 + c.
+#   Black (side 0): pawn 'b', king 'B', moves upward (dr=-1), crowns at row 0.
+#   Red   (side 1): pawn 'r', king 'R', moves downward (dr=+1), crowns at row 7.
 #
-# Mã kết quả của classify_move / validate_move / validate_chain:
+# Return codes for classify_move / validate_move / validate_chain:
 #   $v0 = INVALID (0) | STEP (1) | CAPTURE (2)
-#   $v1 = mã lỗi ERR_* khi $v0 = INVALID (xem main.asm và err_table)
+#   $v1 = ERR_* error code when $v0 = INVALID (see defs.asm and err_table in board_io.asm)
 ###############################################################################
 
 .text
 
 # -----------------------------------------------------------------------------
-# is_own(a0 = ký tự quân, a1 = side) -> v0 = 1 nếu quân thuộc về side, ngược lại 0
+# is_own(a0 = piece char, a1 = side) -> v0 = 1 if piece belongs to side, else 0
 # -----------------------------------------------------------------------------
 is_own:
     li   $v0, 1
@@ -39,15 +40,15 @@ is_own_done:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# is_enemy(a0 = ký tự quân, a1 = side) -> v0 = 1 nếu là quân của đối phương
-# (ô trống, ô không dùng hay ngoài bàn đều trả về 0)
+# is_enemy(a0 = piece char, a1 = side) -> v0 = 1 if opponent's piece, else 0
+# (empty, unused, and out-of-bounds cells all return 0)
 # -----------------------------------------------------------------------------
 is_enemy:
-    xori $a1, $a1, 1            # đổi sang bên kia rồi dùng lại is_own
+    xori $a1, $a1, 1            # flip side and tail-call is_own
     j    is_own
 
 # -----------------------------------------------------------------------------
-# is_king(a0 = ký tự quân) -> v0 = 1 nếu là vua ('B' hoặc 'R')
+# is_king(a0 = piece char) -> v0 = 1 if king ('B' or 'R'), else 0
 # -----------------------------------------------------------------------------
 is_king:
     li   $v0, 1
@@ -58,25 +59,25 @@ is_king_done:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# dir_allowed(a0 = ký tự quân, a1 = side, a2 = hướng hàng dr (+1/-1))
-#   -> v0 = 1 nếu quân được đi theo hướng đó.
-# Vua đi cả hai hướng; quân thường chỉ đi tới (Đen: -1, Đỏ: +1).
+# dir_allowed(a0 = piece char, a1 = side, a2 = row delta sign dr in {-1, +1})
+#   -> v0 = 1 if the piece may travel in row direction dr.
+# Kings move both ways; pawns move forward only (Black: -1, Red: +1).
 # -----------------------------------------------------------------------------
 dir_allowed:
     li   $v0, 1
     beq  $a0, KING_BLACK, dir_allowed_done
     beq  $a0, KING_RED, dir_allowed_done
-    li   $t0, -1                # hướng tiến của Đen
+    li   $t0, -1                # Black forward direction
     beqz $a1, dir_allowed_cmp
-    li   $t0, 1                 # hướng tiến của Đỏ
+    li   $t0, 1                 # Red forward direction
 dir_allowed_cmp:
     seq  $v0, $a2, $t0
 dir_allowed_done:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# check_start(a0 = ô xuất phát, a1 = side) -> v0 = 0 nếu hợp lệ, ngược lại mã lỗi
-#   ERR_RANGE (ô ngoài 1..32), ERR_EMPTY (ô trống), ERR_NOT_YOURS (quân đối phương)
+# check_start(a0 = starting square, a1 = side) -> v0 = 0 if valid, else ERR_*
+#   ERR_RANGE (outside 1..32), ERR_EMPTY (empty), ERR_NOT_YOURS (enemy piece)
 # -----------------------------------------------------------------------------
 check_start:
     push($ra)
@@ -85,7 +86,7 @@ check_start:
     li   $v0, ERR_RANGE
     blt  $a0, 1, check_start_ret
     bgt  $a0, 32, check_start_ret
-    jal  square_piece           # v0 = ký tự quân tại ô a0
+    jal  square_piece           # v0 = cell char at square a0
     move $a0, $v0
     li   $v0, ERR_EMPTY
     beq  $a0, EMPTY, check_start_ret
@@ -94,22 +95,22 @@ check_start:
     move $t0, $v0
     li   $v0, 0
     bnez $t0, check_start_ret
-    li   $v0, ERR_NOT_YOURS     # không phải quân của mình
+    li   $v0, ERR_NOT_YOURS     # piece belongs to opponent
 check_start_ret:
     pop($s0)
     pop($ra)
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# classify_move(a0 = ô đi s, a1 = ô đến d, a2 = side) -> v0 = loại nước, v1 = lỗi
+# classify_move(a0 = start s, a1 = dest d, a2 = side) -> v0 = type, v1 = err
 #
-# Chỉ xét hình học của một bước (chưa xét luật bắt buộc ăn):
-#   1. ô đi hợp lệ và là quân của side         (check_start)
-#   2. ô đến trong 1..32 và đang trống
-#   3. đi đúng đường chéo, đúng hướng
-#   4. quân thường / vua thường: 1 ô = đi, 2 ô qua quân địch = ăn
-#      vua bay (khi bật): đi xa tùy ý trên đường chéo trống, hoặc nhảy qua
-#      đúng một quân địch rồi đáp xuống ô trống phía sau.
+# Checks pure move geometry (independent of global forced-capture rule):
+#   1. Valid starting square occupied by side's piece (check_start)
+#   2. Landing square in 1..32 and currently empty
+#   3. Diagonal alignment and allowed direction
+#   4. Standard pawn/king: 1 square = STEP, 2 squares over enemy = CAPTURE
+#      Flying king (when opt_flying=1): arbitrary clear diagonal step, or jump
+#      over exactly one enemy piece onto any empty square behind it.
 # -----------------------------------------------------------------------------
 classify_move:
     push($ra)
@@ -122,16 +123,16 @@ classify_move:
     push($s6)
     push($s7)
     move $s0, $a2               # s0 = side
-    move $s1, $a0               # s1 = s (tạm)
-    move $s2, $a1               # s2 = d (tạm)
+    move $s1, $a0               # s1 = s (temp)
+    move $s2, $a1               # s2 = d (temp)
 
-    # 1. Ô xuất phát
+    # 1. Starting square
     move $a1, $s0
     jal  check_start
     move $v1, $v0
     bnez $v1, classify_invalid
 
-    # 2. Ô đích
+    # 2. Landing square
     li   $v1, ERR_RANGE
     blt  $s2, 1, classify_invalid
     bgt  $s2, 32, classify_invalid
@@ -145,7 +146,7 @@ classify_move:
     li   $v1, ERR_OCCUPIED
     bne  $v0, EMPTY, classify_invalid
 
-    # 3. Đường chéo và hướng đi
+    # 3. Diagonal geometry and movement direction
     move $a0, $s1
     jal  sq_to_rc
     move $s1, $v0               # s1 = rs
@@ -156,19 +157,19 @@ classify_move:
     abs  $t3, $t1
     li   $v1, ERR_NOT_DIAGONAL
     bne  $t2, $t3, classify_invalid
-    move $s5, $t2               # s5 = n = số ô phải vượt qua
-    li   $s3, 1                 # s3 = sdr = dấu của dr
+    move $s5, $t2               # s5 = n = diagonal distance
+    li   $s3, 1                 # s3 = sdr = sign(dr)
     bgtz $t0, classify_sdc
     li   $s3, -1
 classify_sdc:
-    li   $s4, 1                 # s4 = sdc = dấu của dc
+    li   $s4, 1                 # s4 = sdc = sign(dc)
     bgtz $t1, classify_dir
     li   $s4, -1
 classify_dir:
     move $a0, $s1
     move $a1, $s2
     jal  get_cell
-    move $s6, $v0               # s6 = ký tự quân đang đi
+    move $s6, $v0               # s6 = moving piece char
     move $a0, $s6
     move $a1, $s0
     move $a2, $s3
@@ -176,20 +177,20 @@ classify_dir:
     li   $v1, ERR_BACKWARD
     beqz $v0, classify_invalid
 
-    # 4. Khoảng cách
+    # 4. Distance and intermediate-square checks
     lw   $t0, opt_flying
     beqz $t0, classify_short
     move $a0, $s6
     jal  is_king
     bnez $v0, classify_flying
 
-classify_short:                 # luật Anh: 1 ô = đi, 2 ô = ăn
+classify_short:                 # English rules: 1 = STEP, 2 over enemy = CAPTURE
     li   $v0, STEP
     li   $v1, 0
     beq  $s5, 1, classify_ret
     li   $v1, ERR_TOO_FAR
     bne  $s5, 2, classify_invalid
-    add  $a0, $s1, $s3          # ô ở giữa
+    add  $a0, $s1, $s3          # midpoint cell
     add  $a1, $s2, $s4
     jal  get_cell
     move $a0, $v0
@@ -201,9 +202,9 @@ classify_short:                 # luật Anh: 1 ô = đi, 2 ô = ăn
     li   $v1, 0
     j    classify_ret
 
-classify_flying:                # vua bay: duyệt các ô nằm giữa s và d
-    li   $s6, 1                 # s6 = k (ô thứ k trên đường đi)
-    li   $s7, 0                 # s7 = số quân địch gặp trên đường
+classify_flying:                # flying king: scan all cells between s and d
+    li   $s6, 1                 # s6 = k (step index along diagonal)
+    li   $s7, 0                 # s7 = enemy count encountered on path
 classify_fly_loop:
     bge  $s6, $s5, classify_fly_end
     mul  $t0, $s6, $s3
@@ -217,9 +218,9 @@ classify_fly_loop:
     move $a1, $s0
     jal  is_enemy
     li   $v1, ERR_BLOCKED
-    beqz $v0, classify_invalid  # quân mình chắn đường
+    beqz $v0, classify_invalid  # blocked by friendly piece
     addi $s7, $s7, 1
-    bgt  $s7, 1, classify_invalid   # không được nhảy qua 2 quân
+    bgt  $s7, 1, classify_invalid   # cannot jump over two enemies at once
     j    classify_fly_loop
 classify_fly_end:
     li   $v0, STEP
@@ -243,9 +244,8 @@ classify_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# validate_move(a0 = s, a1 = d, a2 = side) -> v0 = loại nước, v1 = lỗi
-# Như classify_move, cộng thêm luật bắt buộc ăn (khi opt_forced bật):
-# nếu bên đi có nước ăn thì không được đi thường.
+# validate_move(a0 = s, a1 = d, a2 = side) -> v0 = type, v1 = err
+# Wraps classify_move and enforces mandatory first capture when opt_forced = 1.
 # -----------------------------------------------------------------------------
 validate_move:
     push($ra)
@@ -269,8 +269,8 @@ validate_move_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# validate_chain(a0 = ô quân vừa ăn, a1 = d, a2 = side) -> v0, v1
-# Trong chuỗi ăn liên hoàn chỉ chấp nhận nước ăn bằng chính quân vừa ăn.
+# validate_chain(a0 = locked square, a1 = d, a2 = side) -> v0, v1
+# During a capture chain, only captures by the same locked piece are accepted.
 # -----------------------------------------------------------------------------
 validate_chain:
     push($ra)
@@ -283,8 +283,8 @@ validate_chain_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# can_capture_from(a0 = ô, a1 = side) -> v0 = 1 nếu quân ở ô đó còn ăn được
-# Dùng để phát hiện ăn liên hoàn, bắt buộc ăn và kiểm tra còn nước đi.
+# can_capture_from(a0 = square, a1 = side) -> v0 = 1 if piece can capture
+# Used for chain capture detection, forced capture, and win/blockade detection.
 # -----------------------------------------------------------------------------
 can_capture_from:
     push($ra)
@@ -303,8 +303,8 @@ can_capture_from:
     move $a0, $v0
     move $a1, $v1
     jal  get_cell
-    move $s3, $v0               # s3 = ký tự quân
-    li   $s4, 0                 # s4 = hướng thứ i (0..3)
+    move $s3, $v0               # s3 = piece char
+    li   $s4, 0                 # s4 = direction index i (0..3)
 can_capture_dir:
     bge  $s4, 4, can_capture_no
     andi $t0, $s4, 2            # i = 0,1: dr = -1 ; i = 2,3: dr = +1
@@ -312,7 +312,7 @@ can_capture_dir:
     beqz $t0, can_capture_dc
     li   $s5, 1
 can_capture_dc:
-    andi $t0, $s4, 1            # i chẵn: dc = -1 ; i lẻ: dc = +1
+    andi $t0, $s4, 1            # even i: dc = -1 ; odd i: dc = +1
     li   $s6, -1
     beqz $t0, can_capture_check
     li   $s6, 1
@@ -323,13 +323,13 @@ can_capture_check:
     move $a2, $s5
     jal  dir_allowed
     beqz $v0, can_capture_dir
-    li   $s7, 1                 # s7 = k: ô cách quân k bước
+    li   $s7, 1                 # s7 = k: distance along diagonal
     lw   $t0, opt_flying
     beqz $t0, can_capture_try
     move $a0, $s3
     jal  is_king
     beqz $v0, can_capture_try
-can_capture_skip:               # vua bay: bỏ qua các ô trống phía trước
+can_capture_skip:               # flying king: skip leading empty squares
     mul  $t0, $s7, $s5
     add  $a0, $s1, $t0
     mul  $t1, $s7, $s6
@@ -338,7 +338,7 @@ can_capture_skip:               # vua bay: bỏ qua các ô trống phía trư�
     bne  $v0, EMPTY, can_capture_try
     addi $s7, $s7, 1
     j    can_capture_skip
-can_capture_try:                # ô thứ k phải là quân địch, ô k+1 phải trống
+can_capture_try:                # square k must be enemy, square k+1 must be empty
     mul  $t0, $s7, $s5
     add  $a0, $s1, $t0
     mul  $t1, $s7, $s6
@@ -372,8 +372,8 @@ can_capture_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# can_step_from(a0 = ô, a1 = side) -> v0 = 1 nếu quân ở ô đó đi thường được
-# (có ô chéo kề bên, đúng hướng, đang trống)
+# can_step_from(a0 = square, a1 = side) -> v0 = 1 if piece has a legal step
+# (checks adjacent empty diagonal squares in allowed directions)
 # -----------------------------------------------------------------------------
 can_step_from:
     push($ra)
@@ -391,8 +391,8 @@ can_step_from:
     move $a0, $v0
     move $a1, $v1
     jal  get_cell
-    move $s3, $v0               # s3 = ký tự quân
-    li   $s4, 0                 # s4 = hướng thứ i (0..3)
+    move $s3, $v0               # s3 = piece char
+    li   $s4, 0                 # s4 = direction index i (0..3)
 can_step_dir:
     bge  $s4, 4, can_step_no
     andi $t0, $s4, 2            # i = 0,1: dr = -1 ; i = 2,3: dr = +1
@@ -400,7 +400,7 @@ can_step_dir:
     beqz $t0, can_step_dc
     li   $s5, 1
 can_step_dc:
-    andi $t0, $s4, 1            # i chẵn: dc = -1 ; i lẻ: dc = +1
+    andi $t0, $s4, 1            # even i: dc = -1 ; odd i: dc = +1
     li   $s6, -1
     beqz $t0, can_step_check
     li   $s6, 1
@@ -431,15 +431,15 @@ can_step_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# has_any_move(a0 = side) -> v0 = 1 nếu bên đó còn ít nhất một nước đi.
-# Hết quân hoặc mọi quân đều bị chặn -> 0 (bên đó thua).
+# has_any_move(a0 = side) -> v0 = 1 if side has at least one legal move.
+# Returns 0 if eliminated or completely blocked (side loses).
 # -----------------------------------------------------------------------------
 has_any_move:
     push($ra)
     push($s0)
     push($s1)
     move $s0, $a0               # s0 = side
-    li   $s1, 1                 # s1 = ô đang xét
+    li   $s1, 1                 # s1 = current square
 has_any_move_loop:
     bgt  $s1, 32, has_any_move_no
     move $a0, $s1
@@ -468,7 +468,7 @@ has_any_move_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# side_has_capture(a0 = side) -> v0 = 1 nếu bên đó có ít nhất một nước ăn
+# side_has_capture(a0 = side) -> v0 = 1 if side has at least one capture move
 # -----------------------------------------------------------------------------
 side_has_capture:
     push($ra)
@@ -500,9 +500,9 @@ side_has_capture_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# do_move(a0 = s, a1 = d) -> v0 = 1 nếu quân vừa được phong vua
-# Thực hiện nước đi ĐÃ được kiểm tra hợp lệ: chuyển quân, xóa mọi quân nằm
-# giữa s và d (chính là quân bị ăn, nếu có) và phong vua khi tới hàng cuối.
+# do_move(a0 = s, a1 = d) -> v0 = 1 if piece was promoted to king
+# Executes an already-validated move: relocates piece, clears any intermediate
+# captured enemy along the diagonal, and crowns pawns reaching row 0 or row 7.
 # -----------------------------------------------------------------------------
 do_move:
     push($ra)
@@ -510,25 +510,25 @@ do_move:
     push($s1)
     push($s2)
     push($s3)
-    move $s0, $a1               # giữ d
+    move $s0, $a1               # save d
     jal  sq_to_rc
     move $s1, $v0               # s1 = rs
     move $s2, $v1               # s2 = cs
     move $a0, $s0
     jal  sq_to_rc               # v0 = rd, v1 = cd
     sll  $t0, $s1, 3
-    add  $t0, $t0, $s2          # t0 = chỉ số ô đi
+    add  $t0, $t0, $s2          # t0 = start index
     sll  $t1, $v0, 3
-    add  $t1, $t1, $v1          # t1 = chỉ số ô đến
-    lbu  $s3, board($t0)        # s3 = quân đang đi
+    add  $t1, $t1, $v1          # t1 = dest index
+    lbu  $s3, board($t0)        # s3 = moving piece
     sb   $s3, board($t1)
     li   $t2, EMPTY
     sb   $t2, board($t0)
 
-    # Xóa các ô nằm giữa (quân bị ăn)
+    # Clear intermediate diagonal cells (removes jumped enemy for short & flying)
     sub  $t3, $v0, $s1
     sub  $t4, $v1, $s2
-    li   $t5, 8                 # bước chỉ số theo hướng: dr*8 + dc
+    li   $t5, 8                 # flat-array diagonal stride: sdr*8 + sdc
     bgtz $t3, do_move_dc
     li   $t5, -8
 do_move_dc:
@@ -541,9 +541,9 @@ do_move_clear:
     sb   $t2, board($t0)
     j    do_move_clear
 
-    # Phong vua
+    # Instant king promotion upon landing on the final row
 do_move_promote:
-    li   $t6, 0                 # t6 = đã phong vua?
+    li   $t6, 0                 # t6 = promoted flag
     bne  $s3, PAWN_BLACK, do_move_red
     bnez $v0, do_move_ret
     li   $t7, KING_BLACK

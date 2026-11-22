@@ -1,4 +1,4 @@
-"""Tiện ích chung cho test_rules.py và test_features.py: chạy MARS với input cho sẵn."""
+"""Shared helpers for test_rules.py and test_features.py: execute MARS with stdin."""
 import subprocess
 from pathlib import Path
 
@@ -9,7 +9,7 @@ DRIVER_ASM = ROOT / "tests" / "unit" / "rules_driver.asm"
 
 
 def run_mars(asm, lines, extra_args=(), program_args=()):
-    """Nạp danh sách dòng hoặc chuỗi nguyên văn vào stdin rồi trả về stdout."""
+    """Feed a list of input lines or raw string to MARS stdin and return stdout."""
     input_text = lines if isinstance(lines, str) else "".join(f"{line}\n" for line in lines)
     args = ["java", "-jar", str(MARS), "nc", "ae1", "se1", *extra_args, str(asm)]
     if program_args:
@@ -28,14 +28,14 @@ def run_mars(asm, lines, extra_args=(), program_args=()):
 
 
 def square_rc(square):
-    """Ô 1..32 -> (hàng, cột), giống sq_to_rc trong board_io.asm."""
+    """Map canonical square 1..32 -> (row, col), matching sq_to_rc in board_io.asm."""
     row = (square - 1) // 4
     col = 2 * ((square - 1) % 4) + (1 if row % 2 == 0 else 0)
     return row, col
 
 
 def board_rows(pieces):
-    """Dựng 8 dòng bàn cờ từ {ô: ký tự}, các ô tối còn lại để trống ('0')."""
+    """Build 8 compact board strings from {square: piece}; remaining dark squares are '0'."""
     rows = [["_" if (r + c) % 2 == 0 else "0" for c in range(8)] for r in range(8)]
     for square, piece in pieces.items():
         r, c = square_rc(square)
@@ -44,5 +44,5 @@ def board_rows(pieces):
 
 
 def plain_board(pieces):
-    """Bàn cờ theo đúng định dạng chương trình in ra (ký tự cách nhau bởi dấu cách)."""
+    """Render compact board matching classic terminal output (space-separated cells)."""
     return "".join(" ".join(row) + "\n" for row in board_rows(pieces))

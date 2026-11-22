@@ -2,44 +2,45 @@
 # Checkers (English draughts) - MARS MIPS Assembly
 # CO2008 - Computer Architecture Lab
 #
-# main.asm - ĐIỀU KHIỂN CHƯƠNG TRÌNH (phần phụ trách: Hậu)
-#   Vòng lặp chính, lượt chơi, đổi lượt, kết thúc ván, menu cài đặt và các
-#   tính năng thêm (lịch sử nước đi, xin hòa, chơi lại). Ghép các file khác
-#   bằng .include:
-#     defs.asm      hằng số và macro dùng chung        (Hậu)
-#     board_io.asm  bàn cờ, hiển thị, nhập liệu        (Hậu)
-#     rules.asm     luật đi, ăn quân, phong vua          (Khôi)
+# main.asm - PROGRAM CONTROLLER (Owner: Nguyen Thanh Hau)
+#   Main game loop, turn execution, turn switching, win/draw handling, settings
+#   menu, and extra features (move history, draw offer, replay). Assembles all
+#   modules into one translation unit via .include:
+#     defs.asm      shared constants and macros             (Nguyen Thanh Hau)
+#     board_io.asm  board state, rendering, input parsing   (Nguyen Thanh Hau)
+#     rules.asm     move validation, captures, promotion    (Tran Minh Khoi)
 #
-# Chạy:  java -jar Mars45.jar nc src/main.asm
-#        hoặc mở src/main.asm trong MARS rồi Assemble (tắt tùy chọn
-#        "Assemble all files in directory" để không bị trùng nhãn).
+# Run:  java -jar Mars45.jar nc src/main.asm
+#       or open src/main.asm in MARS GUI and assemble (disable
+#       "Assemble all files in directory" to avoid duplicate-label errors).
 #
-# Mặc định hiển thị bàn cờ có khung và số ô. Nhập 0 ở ô xuất phát để mở menu.
-# Thêm "pa classic" vào cuối lệnh CLI để phát lại transcript của ván mẫu.
+# Defaults to the framed board with square numbers. Enter 0 at the starting-
+# square prompt to open the menu. Pass "pa classic" on the CLI to replay
+# classic transcript fixtures.
 ###############################################################################
 
-# Hằng số (.eqv) và macro dùng chung
+# Shared constants (.eqv) and utility macros
 .include "defs.asm"
 
-# ============================ Dữ liệu ========================================
+# ============================ Data Segment ===================================
 .data
-turn:           .word SIDE_BLACK    # bên đang đi
-draw_offer:     .word -1            # bên đang xin hòa (-1 = không ai)
+turn:           .word SIDE_BLACK    # active side (0 = Black, 1 = Red)
+draw_offer:     .word -1            # side offering a draw (-1 = none)
 history_len:    .word 0
 
-# Các tùy chọn bật/tắt (thứ tự giống menu, 0 = tắt, 1 = bật)
+# Toggleable settings (same order as menu; 0 = OFF, 1 = ON)
 options:
-opt_pretty:     .word 1     # 1. bàn cờ có khung và số ô
-opt_rotate:     .word 0     # 2. xoay bàn cho lượt Đỏ
-opt_relnum:     .word 0     # 3. Đỏ dùng cách đánh số của mình
-opt_detail:     .word 0     # 4. thông báo lỗi chi tiết
-opt_hints:      .word 0     # 5. gợi ý nước đi
-opt_forced:     .word 0     # 6. bắt buộc ăn quân
-opt_flying:     .word 0     # 7. vua bay
-opt_bitmap:     .word 0     # 8. vẽ lên Bitmap Display
-opt_replay:     .word 0     # 9. hỏi chơi lại khi hết ván
+opt_pretty:     .word 1     # 1. framed board with square numbers
+opt_rotate:     .word 0     # 2. rotate board on Red's turn
+opt_relnum:     .word 0     # 3. Red's player-relative square numbering
+opt_detail:     .word 0     # 4. detailed error messages
+opt_hints:      .word 0     # 5. legal move hints
+opt_forced:     .word 0     # 6. forced first capture rule
+opt_flying:     .word 0     # 7. flying kings variant
+opt_bitmap:     .word 0     # 8. render to MARS Bitmap Display
+opt_replay:     .word 0     # 9. prompt to play again after game over
 
-# Lịch sử: mỗi bước 4 byte = ô đi, ô đến, cờ (bit0 = ăn, bit1 = ăn tiếp), bên đi
+# Move history: 4 bytes/step = from, to, flags (bit0=capture, bit1=chain), side
 history:        .space 4000
 
 str_black_turn: .asciiz "Black's turn.\n"
@@ -92,17 +93,18 @@ opt_txt7:       .asciiz "  7. Flying kings variant .................... "
 opt_txt8:       .asciiz "  8. Bitmap Display (setup: see README) ...... "
 opt_txt9:       .asciiz "  9. Ask to play again when the game ends .... "
 
-# ============================ Chương trình ===================================
+# ============================ Code Segment ===================================
 .text
 .globl main
 
 # -----------------------------------------------------------------------------
-# main - vòng lặp chính của ván cờ
-#   Đen đi trước. Trước mỗi lượt kiểm tra bên tới lượt còn nước đi không
-#   (hết quân hoặc bị chặn hết thì thua). Sau mỗi lượt hợp lệ mới đổi lượt.
+# main - primary game loop
+#   Black moves first. Before each turn, checks whether the active side has at
+#   least one legal move (elimination or full blockade ends the game). Turn
+#   switches only after a valid move (and any mandatory capture chain).
 # -----------------------------------------------------------------------------
 main:
-    # MARS CLI: "pa classic" khởi động với bàn cờ gọn để phát lại ván mẫu.
+    # MARS CLI: "pa classic" starts with the compact board for transcript tests.
     beqz $a0, main_new_game
     lw   $t0, 0($a1)
     la   $t1, str_classic_arg
@@ -128,12 +130,12 @@ main_loop:
     beq  $v0, RESULT_RESTART, main_restart
     beq  $v0, RESULT_DRAW, main_draw
     beq  $v0, RESULT_QUIT, main_exit
-    lw   $t0, turn              # đổi lượt chỉ sau khi đi xong một nước hợp lệ
+    lw   $t0, turn              # switch turn only after completing a legal move
     xori $t0, $t0, 1
     sw   $t0, turn
     j    main_loop
 
-main_no_moves:                  # bên tới lượt thua
+main_no_moves:                  # active side has no legal move and loses
     lw   $t0, opt_pretty
     bnez $t0, main_loss_reason
     lw   $t0, opt_detail
@@ -178,7 +180,7 @@ main_exit:
     syscall
 
 # -----------------------------------------------------------------------------
-# new_game() - đặt lại bàn cờ, lượt đi, lời xin hòa và lịch sử
+# new_game() - reset board, active turn, draw offer state, and move history
 # -----------------------------------------------------------------------------
 new_game:
     push($ra)
@@ -193,12 +195,12 @@ new_game:
 # -----------------------------------------------------------------------------
 # play_turn() -> v0 = RESULT_MOVED | RESULT_RESTART | RESULT_DRAW | RESULT_QUIT
 #
-# Một lượt đi của bên "turn":
-#   1. Hỏi ô xuất phát và ô đích (0 ở ô xuất phát = mở menu).
-#   2. Nước sai -> báo lỗi, hỏi lại; người chơi KHÔNG mất lượt.
-#   3. Đi thường -> in bàn cờ, hết lượt.
-#   4. Ăn quân -> in bàn cờ; nếu quân vừa ăn còn ăn tiếp được thì bắt buộc
-#      ăn liên hoàn: chỉ hỏi lại ô đích cho tới khi hết nước ăn.
+# Executes one turn for the active side stored in "turn":
+#   1. Prompt for starting and landing squares (0 at start opens the menu).
+#   2. Invalid move -> print error and re-prompt; player does NOT lose turn.
+#   3. Normal step -> render board and end turn.
+#   4. Capture -> render board; if the capturing piece can jump again, enforce
+#      mandatory chain capture by prompting only for the next landing square.
 # -----------------------------------------------------------------------------
 play_turn:
     push($ra)
@@ -207,7 +209,7 @@ play_turn:
     push($s2)
     push($s3)
     push($s4)
-    lw   $s3, turn              # s3 = bên đang đi
+    lw   $s3, turn              # s3 = active side
 
 play_turn_begin:
     la   $a0, str_black_turn
@@ -228,11 +230,11 @@ play_turn_ask_start:
     jal  read_square
     beq  $v0, INPUT_END, play_turn_input_end
     beqz $v0, play_turn_menu
-    move $s0, $v0               # s0 = ô xuất phát
+    move $s0, $v0               # s0 = starting square
     blt  $s0, 1, play_turn_bad_number
     bgt  $s0, 32, play_turn_bad_number
 
-    # Bật lỗi chi tiết hoặc gợi ý: kiểm tra ô xuất phát ngay, chưa hỏi ô đích
+    # Detailed errors or hints enabled: validate starting square immediately
     lw   $t0, opt_detail
     lw   $t1, opt_hints
     or   $t0, $t0, $t1
@@ -251,14 +253,14 @@ play_turn_start_ok:
     move $a1, $s3
     li   $a2, 0
     jal  print_landing_squares
-    beqz $v0, play_turn_ask_start   # quân này không đi được -> chọn quân khác
+    beqz $v0, play_turn_ask_start   # selected piece has no legal moves
 
 play_turn_ask_land:
     print_str(str_ask_land)
     move $a0, $s3
     jal  read_square
     beq  $v0, INPUT_END, play_turn_input_end
-    move $s1, $v0               # s1 = ô đích
+    move $s1, $v0               # s1 = landing square
     move $a0, $s0
     move $a1, $s1
     move $a2, $s3
@@ -269,7 +271,7 @@ play_turn_ask_land:
     j    play_turn_ask_start
 
 play_turn_valid:
-    move $s2, $v0               # s2 = loại nước (STEP / CAPTURE)
+    move $s2, $v0               # s2 = move type (STEP / CAPTURE)
     move $a0, $s0
     move $a1, $s1
     jal  do_move
@@ -280,25 +282,25 @@ play_turn_valid:
     jal  record_move
     jal  decline_draw_offer
     beq  $s2, CAPTURE, play_turn_captured
-    xori $a0, $s3, 1            # bàn cờ hiện theo góc nhìn của bên sắp đi
+    xori $a0, $s3, 1            # display board from next player's perspective
     jal  print_board
     li   $v0, RESULT_MOVED
     j    play_turn_ret
 
-play_turn_captured:             # s1 = ô quân vừa ăn đang đứng
+play_turn_captured:             # s1 = landing square of capturing piece
     la   $a0, str_cap_red
     beqz $s3, play_turn_cap_msg
     la   $a0, str_cap_black
 play_turn_cap_msg:
     li   $v0, 4
     syscall
-    move $a0, $s1               # đọc quân ở ô mới sau do_move (có thể đã là vua)
+    move $a0, $s1               # re-read piece after do_move (may be newly crowned)
     move $a1, $s3
     jal  can_capture_from
-    move $s4, $v0               # s4 = còn ăn tiếp được không
+    move $s4, $v0               # s4 = 1 if chain capture continues
     xori $a0, $s3, 1
     beqz $s4, play_turn_cap_board
-    move $a0, $s3               # còn ăn tiếp: vẫn là lượt của bên này
+    move $a0, $s3               # chain continues: keep current player's view
 play_turn_cap_board:
     jal  print_board
     li   $v0, RESULT_MOVED
@@ -326,7 +328,7 @@ play_turn_chain_ask:
     move $a0, $s3
     jal  read_square
     beq  $v0, INPUT_END, play_turn_input_end
-    move $s0, $v0               # s0 = ô đích của bước ăn tiếp
+    move $s0, $v0               # s0 = landing square of chain continuation
     move $a0, $s1
     move $a1, $s0
     move $a2, $s3
@@ -341,7 +343,7 @@ play_turn_chain_ok:
     jal  do_move
     move $a0, $s1
     move $a1, $s0
-    li   $a2, 3                 # ăn + là bước nối tiếp
+    li   $a2, 3                 # flags: bit0 = capture, bit1 = chain continuation
     move $a3, $s3
     jal  record_move
     move $s1, $s0
@@ -371,8 +373,8 @@ play_turn_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_movable_pieces(a0 = side) - gợi ý: liệt kê các quân đi được
-# (theo cách đánh số của người chơi; đã tính luật bắt buộc ăn nếu bật)
+# print_movable_pieces(a0 = side) - hints: list all pieces with a legal move
+# (uses active player's numbering; respects forced capture when enabled)
 # -----------------------------------------------------------------------------
 print_movable_pieces:
     push($ra)
@@ -388,17 +390,17 @@ print_movable_pieces:
     print_str(str_must_cap)
 print_movable_list:
     print_str(str_hint_pieces)
-    li   $s1, 1                 # s1 = số ô người chơi nhìn thấy
+    li   $s1, 1                 # s1 = displayed square number
 print_movable_loop:
     move $a0, $s1
     move $a1, $s0
     jal  view_square
-    move $s2, $v0               # s2 = ô thật
+    move $s2, $v0               # s2 = canonical square number
     move $a0, $s2
     move $a1, $s0
     jal  check_start
     bnez $v0, print_movable_next
-    li   $s3, 1                 # s3 = ô đích thử
+    li   $s3, 1                 # s3 = candidate landing square
 print_movable_try:
     move $a0, $s2
     move $a1, $s3
@@ -423,8 +425,8 @@ print_movable_next:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_landing_squares(a0 = ô quân, a1 = side, a2 = 1 nếu đang ăn liên hoàn)
-#   -> v0 = số ô đích hợp lệ. Gợi ý: liệt kê nơi quân đó có thể đến.
+# print_landing_squares(a0 = piece square, a1 = side, a2 = 1 if chaining)
+#   -> v0 = count of legal landing squares. Lists valid destinations for piece.
 # -----------------------------------------------------------------------------
 print_landing_squares:
     push($ra)
@@ -433,11 +435,11 @@ print_landing_squares:
     push($s2)
     push($s3)
     push($s4)
-    move $s0, $a0               # s0 = ô quân
+    move $s0, $a0               # s0 = canonical starting square
     move $s1, $a1               # s1 = side
-    move $s2, $a2               # s2 = đang ăn liên hoàn?
-    li   $s3, 1                 # s3 = số ô người chơi nhìn thấy
-    li   $s4, 0                 # s4 = đếm
+    move $s2, $a2               # s2 = chaining flag
+    li   $s3, 1                 # s3 = displayed landing square number
+    li   $s4, 0                 # s4 = legal destination counter
     print_str(str_hint_lands)
 print_landing_loop:
     move $a0, $s3
@@ -473,8 +475,8 @@ print_landing_end:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# record_move(a0 = ô đi, a1 = ô đến, a2 = cờ, a3 = side) - lưu một bước vào lịch sử
-#   cờ: bit0 = nước ăn, bit1 = bước nối tiếp trong chuỗi ăn liên hoàn
+# record_move(a0 = from, a1 = to, a2 = flags, a3 = side) - append step to history
+#   flags: bit0 = capture, bit1 = chain continuation step
 # -----------------------------------------------------------------------------
 record_move:
     lw   $t0, history_len
@@ -493,7 +495,7 @@ record_move_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# print_history() - in lịch sử theo ký hiệu chuẩn, mỗi lượt một dòng:
+# print_history() - print move history in standard notation, one line per turn:
 #     1. Black 21-17
 #     2. Red 9-14
 #     3. Black 22x15 15x8
@@ -508,15 +510,15 @@ print_history:
     bnez $t0, print_history_start
     print_str(str_hist_empty)
 print_history_start:
-    li   $s0, 0                 # s0 = chỉ số bước
-    li   $s1, 0                 # s1 = số thứ tự lượt
+    li   $s0, 0                 # s0 = step index
+    li   $s1, 0                 # s1 = turn counter
 print_history_loop:
     lw   $t0, history_len
     bge  $s0, $t0, print_history_end
-    sll  $s2, $s0, 2            # s2 = địa chỉ tương đối của bước
+    sll  $s2, $s0, 2            # s2 = byte offset into history
     lbu  $t1, history+2($s2)
     andi $t1, $t1, 2
-    bnez $t1, print_history_step    # bước nối tiếp: in tiếp trên cùng dòng
+    bnez $t1, print_history_step    # chain step: append to current line
     addi $s1, $s1, 1
     print_char('\n')
     print_char(' ')
@@ -550,7 +552,7 @@ print_history_end:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# notify_draw_offer() - đầu lượt, báo nếu đối phương đang xin hòa
+# notify_draw_offer() - at start of turn, notify if opponent offered a draw
 # -----------------------------------------------------------------------------
 notify_draw_offer:
     push($ra)
@@ -566,7 +568,7 @@ notify_draw_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# decline_draw_offer() - bên được mời hòa đã đi một nước, coi như từ chối
+# decline_draw_offer() - making a move implicitly declines a pending draw offer
 # -----------------------------------------------------------------------------
 decline_draw_offer:
     lw   $t0, draw_offer
@@ -580,15 +582,15 @@ decline_draw_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
-# menu() -> v0 = RESULT_MOVED (quay lại ván), RESULT_RESTART, RESULT_DRAW, RESULT_QUIT
-# Bật/tắt tùy chọn 1..9 và các thao tác 10..14.
+# menu() -> v0 = RESULT_MOVED (resume game), RESULT_RESTART, RESULT_DRAW, RESULT_QUIT
+# Toggles settings 1..9 and handles actions 10..14.
 # -----------------------------------------------------------------------------
 menu:
     push($ra)
     push($s0)
 menu_show:
     print_str(str_menu_head)
-    li   $s0, 0                 # s0 = chỉ số tùy chọn (0..8)
+    li   $s0, 0                 # s0 = option index (0..8)
 menu_option_loop:
     sll  $t0, $s0, 2
     lw   $a0, option_labels($t0)
@@ -612,7 +614,7 @@ menu_option_state:
     beqz $s0, menu_back
     blt  $s0, 1, menu_bad
     bgt  $s0, NUM_OPTIONS, menu_action
-    addi $t0, $s0, -1           # bật/tắt tùy chọn số s0
+    addi $t0, $s0, -1           # toggle option s0
     sll  $t0, $t0, 2
     lw   $t1, options($t0)
     xori $t1, $t1, 1
@@ -637,7 +639,7 @@ menu_draw:
     lw   $t0, draw_offer
     lw   $t1, turn
     xori $t2, $t1, 1
-    beq  $t0, $t2, menu_draw_accept     # đối phương đã xin hòa -> hòa
+    beq  $t0, $t2, menu_draw_accept     # opponent offered draw -> mutual draw
     bne  $t0, $t1, menu_draw_new
     print_str(str_draw_again)
     j    menu_show
@@ -651,7 +653,7 @@ menu_draw_accept:
     li   $v0, RESULT_DRAW
     j    menu_ret
 
-menu_restart:                   # main in thông báo và tạo ván mới
+menu_restart:                   # main prints restart message and resets game
     li   $v0, RESULT_RESTART
     j    menu_ret
 
@@ -661,7 +663,7 @@ menu_input_end:
     li   $v0, RESULT_QUIT
     j    menu_ret
 
-menu_all:                       # bật các tùy chọn tiện ích 1-5 và 9
+menu_all:                       # enable all quality-of-life options (1-5, 9)
     li   $t0, 1
     sw   $t0, opt_pretty
     sw   $t0, opt_rotate
@@ -679,6 +681,6 @@ menu_ret:
     pop($ra)
     jr   $ra
 
-# ============================ Ghép các phần khác =============================
+# ============================ Included Modules ===============================
 .include "board_io.asm"
 .include "rules.asm"

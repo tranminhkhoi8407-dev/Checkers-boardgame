@@ -1,19 +1,19 @@
-// Checkers (English variant) - bản C++ tham chiếu cho src/*.asm.
+// Checkers (English variant) - C++ reference model for src/*.asm.
 //
-// File này dùng làm "mã giả chạy được": mỗi hàm ở đây ứng với một hàm cùng tên
-// trong bản MIPS, để dễ đối chiếu, debug và viết báo cáo. Bản C++ chỉ làm phần
-// bắt buộc của đề (đúng output của tests/); các tính năng mở rộng (menu 0) chỉ có
-// trong bản MIPS.
+// Serves as executable pseudocode: each function here mirrors a MIPS procedure
+// of the same name for side-by-side verification, debugging, and reporting.
+// This C++ reference implements the mandatory core requirements matching
+// tests/test_001..005; extra menu features (option 0) live exclusively in MIPS.
 //
-//   Phần của Hậu (board_io.asm, main.asm): init_board, print_board, read_number,
-//                                          play_turn, main
-//   Phần của Khôi (rules.asm):             classify_move, can_capture_from,
-//                                          can_step_from, has_any_move, do_move
+//   Board, I/O & Main Loop (Nguyen Thanh Hau): init_board, print_board,
+//                                              read_number, play_turn, main
+//   Game Rules Engine      (Tran Minh Khoi):   classify_move, can_capture_from,
+//                                              can_step_from, has_any_move, do_move
 #include <cstdlib>
 #include <iostream>
 #include <string>
 
-/* ================= Cấu hình ================= */
+/* ================= Configuration ================= */
 constexpr int N = 8;
 constexpr int SQUARES = 32;
 
@@ -27,7 +27,7 @@ constexpr int INVALID = 0;
 constexpr int STEP = 1;
 constexpr int CAPTURE = 2;
 
-/* ================= Trạng thái game ================= */
+/* ================= Game State ================= */
 const char *const START_BOARD[N] = {
     "_r_r_r_r",
     "r_r_r_r_",
@@ -42,7 +42,7 @@ const char *const START_BOARD[N] = {
 char board[N][N + 1];
 int turn = BLACK;
 
-/* ================= Bàn cờ và nhập/xuất (Hậu) ================= */
+/* ================= Board and I/O (Nguyen Thanh Hau) ================= */
 void init_board()
 {
     for (int i = 0; i < N; ++i)
@@ -65,20 +65,20 @@ void print_board()
     }
 }
 
-// Ô 1..32 -> (hàng, cột). Hàng chẵn: ô tối ở cột lẻ; hàng lẻ: ô tối ở cột chẵn.
+// Square 1..32 -> (row, col). Even rows place dark squares on odd cols; odd rows on even cols.
 void square_to_rc(int s, int &r, int &c)
 {
     r = (s - 1) / 4;
     c = 2 * ((s - 1) % 4) + (r % 2 == 0 ? 1 : 0);
 }
 
-// Đọc một dòng và đổi sang số. Trả về -1 nếu dòng không phải một số nguyên dương
-// (chữ, để trống, có ký tự lạ...). Không bao giờ làm chương trình dừng.
+// Read one line and parse as non-negative integer. Returns -1 on invalid input
+// (letters, empty lines, trailing garbage, etc.); exits cleanly on EOF.
 int read_number()
 {
     std::string line;
     if (!std::getline(std::cin, line))
-        std::exit(0); // hết input
+        std::exit(0); // end of input
     std::size_t i = 0;
     while (i < line.size() && (line[i] == ' ' || line[i] == '\t'))
         ++i;
@@ -96,17 +96,17 @@ int read_number()
     return value;
 }
 
-/* ================= Luật chơi (Khôi) ================= */
+/* ================= Rules Engine (Tran Minh Khoi) ================= */
 bool on_board(int r, int c) { return r >= 0 && r < N && c >= 0 && c < N; }
 bool is_own(char p, int side) { return side == BLACK ? (p == 'b' || p == 'B') : (p == 'r' || p == 'R'); }
 bool is_enemy(char p, int side) { return is_own(p, 1 - side); }
 bool is_king(char p) { return p == 'B' || p == 'R'; }
 int forward_dir(int side) { return side == BLACK ? -1 : 1; }
 
-// Quân ở (r, c) có được đi theo hướng hàng dr không? Vua đi được cả hai hướng.
+// Check whether piece p can move in row direction dr (kings move both ways).
 bool dir_allowed(char p, int side, int dr) { return is_king(p) || dr == forward_dir(side); }
 
-// Phân loại nước s -> d của bên side: INVALID, STEP hoặc CAPTURE.
+// Classify move s -> d for side: INVALID, STEP, or CAPTURE.
 int classify_move(int s, int d, int side)
 {
     if (s < 1 || s > SQUARES || d < 1 || d > SQUARES)
@@ -150,7 +150,7 @@ bool can_step_from(int r, int c, int side)
     return false;
 }
 
-// Bên tới lượt không còn nước đi (hết quân hoặc bị chặn) là thua.
+// Active side loses if eliminated or completely blocked with no legal move.
 bool has_any_move()
 {
     for (int r = 0; r < N; ++r)
@@ -160,7 +160,7 @@ bool has_any_move()
     return false;
 }
 
-// Thực hiện nước đi đã hợp lệ, xóa quân bị ăn và phong vua khi tới hàng cuối.
+// Apply a validated move, remove captured enemy piece, and promote on back rank.
 void do_move(int s, int d, int type)
 {
     int rs, cs, rd, cd;
@@ -176,7 +176,7 @@ void do_move(int s, int d, int type)
         board[rd][cd] = 'R';
 }
 
-/* ================= Điều khiển lượt chơi (Hậu) ================= */
+/* ================= Turn Controller (Nguyen Thanh Hau) ================= */
 void play_turn()
 {
     std::cout << (turn == BLACK ? "Black's turn.\n" : "Red's turn.\n");
@@ -201,7 +201,7 @@ void play_turn()
         return;
     }
 
-    // Ăn quân, rồi bắt buộc ăn liên hoàn bằng chính quân vừa ăn.
+    // Capture move: enforce mandatory chain captures with the same piece.
     while (true)
     {
         std::cout << (turn == BLACK ? "Captured Red's piece.\n" : "Captured Black's piece.\n");

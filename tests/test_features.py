@@ -1,25 +1,26 @@
-"""Kiểm thử chương trình chính (src/main.asm): phần bàn giao của Hậu và các tính năng thêm.
+"""End-to-end feature and robustness tests for src/main.asm on MARS 4.5.
 
-Phần bàn giao theo phân công:
-  - khởi tạo đúng, Đen đi trước
-  - nhập sai không làm hỏng chương trình
-  - nước sai không mất lượt
-  - đổi lượt đúng
-  - thông báo thắng đúng (hết quân: test_mips 001/002/005, bị chặn: 003/004)
-Tính năng thêm (mở bằng lệnh 0): menu, bàn cờ đẹp, xoay bàn, đánh số theo người
-chơi, lỗi chi tiết, gợi ý, bắt buộc ăn, xin hòa, lịch sử, chơi lại, Bitmap Display.
+Core handoff deliverables verified:
+  - accurate 12-vs-12 board initialization; Black moves first
+  - malformed input and EOF never crash the simulator
+  - invalid moves retain the active player's turn
+  - proper turn alternation and chain-capture locking
+  - accurate win announcements (elimination: 001/002/005; blockade: 003/004)
+Extra features (menu option 0): pretty board, Red rotation, player-relative
+numbering, detailed errors, move hints, forced capture, flying kings, draw
+offers, move history, restart/replay, and MARS Bitmap Display rendering.
 """
 import pytest
 
 from mars_runner import MAIN_ASM, ROOT, plain_board, run_mars
 
-QUIT = ["0", "13"]                      # mở menu rồi chọn Quit
+QUIT = ["0", "13"]                      # open menu and select Quit
 INVALID = "Not a valid move! Try again."
 START = {s: "r" for s in range(1, 13)} | {s: "b" for s in range(21, 33)}
 FLYING_KING_SETUP = (
     23, 19, 9, 14, 27, 23, 6, 9, 32, 27, 2, 6, 23, 18,
-    14, 23, 32,  # Đỏ ăn liên hoàn bằng 14x23 23x32 rồi phong vua.
-    22, 18,     # Đen đưa một quân vào đường chéo 32-27-23-18-14.
+    14, 23, 32,  # Red double-captures 14x23 23x32 and crowns to king at 32.
+    22, 18,      # Black steps onto diagonal 32-27-23-18-14.
 )
 
 
@@ -32,11 +33,11 @@ def turn_headers(out):
 
 
 def menu(*choices):
-    """Mở menu, chọn lần lượt các mục rồi quay lại ván cờ."""
+    """Open menu, select each choice in order, and return to the game."""
     return ["0", *map(str, choices), "0"]
 
 
-# ------------------------- Phần bàn giao của Hậu -------------------------
+# ------------------------- Core Handoff Checks ---------------------------
 def test_initial_board_and_black_moves_first():
     out = play(*QUIT)
     board = "".join(out.splitlines(keepends=True)[:8])
@@ -73,9 +74,9 @@ def test_crlf_and_last_line_without_newline():
 
 
 def test_invalid_move_does_not_lose_turn():
-    out = play("21", "13",          # sai luật
-               "9", "13",           # quân của đối phương
-               "18", "14",          # ô trống
+    out = play("21", "13",          # illegal move geometry
+               "9", "13",           # opponent's piece
+               "18", "14",          # empty starting square
                "21", "17", *QUIT)
     assert out.count(INVALID) == 3
     assert turn_headers(out) == ["Black's turn.", "Red's turn."]
@@ -100,7 +101,7 @@ def test_promotion_chain_keeps_turn_and_locks_piece():
     after_last = {**after_first_backward, 18: "B"}
     del after_last[9], after_last[14]
 
-    # 7 là ô đi thường hợp lệ của vua ở 2, nhưng bước nối tiếp bắt buộc phải ăn.
+    # Square 7 is a legal normal step for the king on 2, but chain continuation requires capture.
     prefix = plain_board(crowned) + "Chaining possible.\n"
     out = play(*inputs[:33], "7", "0", "abc", *inputs[33:35], *QUIT)
     before_chain, chain = out.split(prefix, 1)
@@ -110,7 +111,7 @@ def test_promotion_chain_keeps_turn_and_locks_piece():
     assert chain.startswith(retries + jumped + plain_board(after_first_backward) +
                             "Chaining possible.\n" + jumped + plain_board(after_last) + "Red's turn.\n")
 
-    # Hết stdin trong lúc bắt buộc ăn tiếp cũng phải thoát sạch.
+    # EOF mid-chain must also exit cleanly without hanging or throwing exceptions.
     assert play(*inputs[:33]).endswith(prefix + "Enter landing square: \n")
 
 
@@ -134,7 +135,7 @@ def test_unknown_menu_choice():
     assert out.count("Unknown choice.") == 2
 
 
-# --------------------------- Hiển thị -----------------------------------
+# --------------------------- Display Modes -------------------------------
 def test_pretty_board():
     out = play(*menu(1), *QUIT)
     assert "Black (b, B = king): 12    Red (r, R = king): 12" in out
@@ -152,7 +153,7 @@ def test_default_board_explains_controls_and_current_rules():
 
 
 def test_rotation_and_red_numbering():
-    # Đỏ thấy bàn xoay 180 độ và dùng số ô của mình: ô 24 của Đỏ = ô 9 thật
+    # Red sees a 180-degree rotated board with relative numbering: Red's 24 = canonical 9.
     out = play(*menu(2, 3), "21", "17", "24", "20", *QUIT)
     after_black = {**START, 17: "b"}
     del after_black[21]
@@ -174,7 +175,7 @@ def test_numbered_board_agrees_with_red_input(rotation_options):
     assert "  | r |   | . |   | . |   | . |   |    |13 |   |14 |   |15 |   |16 |   |" in after_red
 
 
-# --------------------------- Nhập liệu ----------------------------------
+# --------------------------- Input & Hints -------------------------------
 def test_detailed_errors():
     out = play(*menu(4), "abc", "18", "9", "21", "13", "21", "17", *QUIT)
     assert "Not a valid move! Please type a square number from 1 to 32. Try again." in out
@@ -194,7 +195,7 @@ def test_hints_reject_piece_without_moves():
     assert "  Possible landing squares: none - choose another piece." in out
 
 
-# --------------------------- Luật nâng cao --------------------------------
+# --------------------------- Advanced Rules ------------------------------
 def test_forced_capture_in_game():
     moves = ["22", "18", "11", "15", "24", "20"]
     assert INVALID not in play(*moves, *QUIT)
@@ -215,13 +216,13 @@ def test_flying_king_capture_is_required_and_hinted():
 
 
 def test_pretty_chain_identifies_the_piece_in_red_numbering():
-    # 14x23 theo số chuẩn trở thành 19x10 ở phía Đỏ; ô đích tiếp theo là 1.
+    # Canonical 14x23 becomes 19x10 in Red's numbering; next chain landing is 1.
     out = play(*FLYING_KING_SETUP[:14], *menu(2, 3), 19, 10, 1, *QUIT, classic=False)
     assert "Chaining possible.\n  Continue with the piece on square 10.\n" in out
     assert "Captured Black's piece." in out.split("Chaining possible.", 1)[1]
 
 
-# --------------------------- Luồng game ----------------------------------
+# --------------------------- Match Flow ----------------------------------
 def test_draw_needs_both_players():
     out = play(*menu(11), "21", "17", "0", "11")
     assert "Black offers a draw." in out
@@ -270,10 +271,10 @@ def test_bitmap_display_memory(tmp_path):
              extra_args=["dump", "0x10040000-0x10044000", "HexText", str(dump)])
     pixels = [int(word, 16) for word in dump.read_text().split()]
     assert len(pixels) == 64 * 64
-    assert pixels[0] == 0xEFE3CA                          # góc trái trên: ô trắng
-    assert pixels[3 * 64 + 8 + 3] == 0xBE3448             # ô 1: quân Đỏ
-    assert pixels[(7 * 8 + 3) * 64 + 3] == 0x212C45       # ô 29: quân Đen
-    assert pixels[(4 * 8 + 3) * 64 + 8 + 3] == 0x567772   # ô 17: ô tối trống
-    red_king_row = (7 * 8 + 3) * 64 + 6 * 8               # ô 32: vua Đỏ
-    assert pixels[red_king_row + 1] == 0xBE3448           # thân quân
-    assert pixels[red_king_row + 3] == 0xF1C972           # vương miện
+    assert pixels[0] == 0xEFE3CA                          # top-left: light square
+    assert pixels[3 * 64 + 8 + 3] == 0xBE3448             # square 1: Red pawn
+    assert pixels[(7 * 8 + 3) * 64 + 3] == 0x212C45       # square 29: Black pawn
+    assert pixels[(4 * 8 + 3) * 64 + 8 + 3] == 0x567772   # square 17: empty dark square
+    red_king_row = (7 * 8 + 3) * 64 + 6 * 8               # square 32: Red king
+    assert pixels[red_king_row + 1] == 0xBE3448           # piece body
+    assert pixels[red_king_row + 3] == 0xF1C972           # gold king crown
