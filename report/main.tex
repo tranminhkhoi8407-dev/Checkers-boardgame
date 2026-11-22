@@ -1,0 +1,428 @@
+\documentclass[a4paper,10pt]{article}
+
+% =========================================================
+% PACKAGES
+% =========================================================
+
+\usepackage[utf8]{inputenc}
+\usepackage[T5,T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+\usepackage[a4paper,margin=2.5cm,headheight=28pt,headsep=14pt]{geometry}
+\usepackage{graphicx}
+\usepackage[table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds,calc}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{fontawesome5}
+\usepackage{listings}
+\usepackage[skins,breakable]{tcolorbox}
+\usepackage{hyperref}
+
+% =========================================================
+% VIETNAMESE DIACRITIC HELPER (T5 encoding for proper names)
+% =========================================================
+
+\newcommand{\vn}[1]{{\fontencoding{T5}\selectfont #1}}
+
+% =========================================================
+% COVER INFORMATION (Vietnamese diacritics enabled via T5)
+% =========================================================
+
+\newcommand{\InstructorName}{\vn{Nguyễn Thành Lộc}}
+\newcommand{\ClassName}{CC06}
+
+% Member 1
+\newcommand{\StudentName}{Trần Minh Khôi}
+\newcommand{\StudentID}{2550117}
+
+% Member 2
+\newcommand{\MemberTwoName}{Nguyễn Thanh Hậu}
+\newcommand{\MemberTwoID}{2550049}
+
+% Member 3
+\newcommand{\MemberThreeName}{Mạc Phúc Khang}
+\newcommand{\MemberThreeID}{2550082}
+
+\newcommand{\CoverDate}{Ho Chi Minh City, November 2026}
+
+% =========================================================
+% COLOR PALETTE & HYPERREF
+% =========================================================
+
+\definecolor{coverblue}{RGB}{0,0,255}
+\definecolor{hcmutblue}{RGB}{12,61,130}
+\definecolor{hcmutmid}{RGB}{30,90,170}
+\definecolor{hcmutlight}{RGB}{235,242,252}
+\definecolor{slateink}{RGB}{30,41,59}
+\definecolor{slatebg}{RGB}{248,250,252}
+\definecolor{codeborder}{RGB}{203,213,225}
+\definecolor{codekw}{RGB}{15,82,186}
+\definecolor{codereg}{RGB}{153,27,27}
+\definecolor{codecom}{RGB}{71,122,82}
+\definecolor{okgreen}{RGB}{21,128,61}
+\definecolor{warnamber}{RGB}{180,83,9}
+\definecolor{infoblue}{RGB}{29,78,216}
+\definecolor{deeppurple}{RGB}{109,40,217}
+\definecolor{rowshade}{RGB}{244,247,252}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=hcmutblue,
+    urlcolor=hcmutblue,
+    citecolor=hcmutmid,
+    pdftitle={CO2008 Assignment Report: Checkers Boardgame with MARS MIPS Assembly},
+    pdfauthor={Tran Minh Khoi, Nguyen Thanh Hau, Mac Phuc Khang},
+    pdfsubject={Computer Architecture Lab (CO2008) - HCMUT}
+}
+
+% =========================================================
+% MODERN SECTION HEADINGS, TYPOGRAPHY, HEADERS & FOOTERS
+% =========================================================
+
+\titleformat{\section}
+  {\Large\bfseries\color{hcmutblue}}
+  {\colorbox{hcmutblue}{\makebox[1.45em][c]{\color{white}\thesection}}\hspace{0.45em}}
+  {0pt}
+  {}
+  [\vspace{2pt}{\color{hcmutblue!75}\titlerule[0.85pt]}]
+\titlespacing*{\section}{0pt}{14pt}{7pt}
+
+\titleformat{\subsection}
+  {\large\bfseries\color{slateink}}
+  {\color{hcmutmid}\thesubsection\hspace{0.55em}}
+  {0pt}
+  {}
+\titlespacing*{\subsection}{0pt}{10pt}{4pt}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\setlist[itemize]{topsep=3pt,itemsep=2pt,leftmargin=1.4em}
+\setlist[enumerate]{topsep=3pt,itemsep=2pt,leftmargin=1.6em}
+
+\captionsetup{
+    font=small,
+    labelfont={bf,color=hcmutblue},
+    skip=6pt
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{%
+    \raisebox{-0.22\height}{\includegraphics[height=0.72cm]{hcmut.png}}%
+    \hspace{0.25cm}%
+    \parbox[c]{11.5cm}{\footnotesize\ttfamily
+        Ho Chi Minh City University of Technology\\
+        Faculty of Computer Science and Engineering%
+    }%
+}
+\fancyfoot[L]{\footnotesize\ttfamily Computer Architecture Lab (CO2008) -- Checkers in MARS MIPS Assembly}
+\fancyfoot[R]{\footnotesize\ttfamily Page \thepage/\pageref{ReportLastPage}}
+\renewcommand{\headrulewidth}{0.6pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% =========================================================
+% CODE LISTINGS & CALLOUT BOXES
+% =========================================================
+
+\lstdefinelanguage{MIPS}{
+    morekeywords={add,addi,addiu,addu,sub,sll,srl,and,andi,or,ori,nor,xor,xori,mul,abs,seq,slt,sltu,
+                  lw,sw,lbu,lb,sb,li,la,move,beq,bne,beqz,bnez,blt,bgt,ble,bge,bltz,bgtz,blez,bgez,
+                  j,jal,jr,syscall,push,pop,print_str,print_char,print_char_reg,print_int_reg},
+    morekeywords=[2]{.data,.text,.globl,.eqv,.macro,.end_macro,.include,.word,.byte,.space,.ascii,.asciiz},
+    morekeywords=[3]{\$zero,\$v0,\$v1,\$a0,\$a1,\$a2,\$a3,
+                     \$t0,\$t1,\$t2,\$t3,\$t4,\$t5,\$t6,\$t7,\$t8,\$t9,
+                     \$s0,\$s1,\$s2,\$s3,\$s4,\$s5,\$s6,\$s7,\$sp,\$ra},
+    sensitive=true,
+    morecomment=[l]{\#},
+    morestring=[b]"
+}
+
+\lstdefinestyle{mipsstyle}{
+    language=MIPS,
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{codekw}\bfseries,
+    keywordstyle=[2]\color{hcmutblue}\bfseries,
+    keywordstyle=[3]\color{codereg},
+    commentstyle=\color{codecom}\itshape,
+    stringstyle=\color{warnamber},
+    backgroundcolor=\color{slatebg},
+    frame=single,
+    rulecolor=\color{codeborder},
+    frameround=tttt,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt,
+    tabsize=4,
+    breaklines=true,
+    columns=flexible,
+    keepspaces=true,
+    xleftmargin=1.4em,
+    framexleftmargin=1.1em,
+    aboveskip=6pt,
+    belowskip=6pt
+}
+
+\lstdefinestyle{termstyle}{
+    basicstyle=\ttfamily\scriptsize,
+    backgroundcolor=\color{slatebg},
+    frame=single,
+    rulecolor=\color{codeborder},
+    breaklines=true,
+    columns=fixed,
+    basewidth=0.52em,
+    keepspaces=true,
+    aboveskip=5pt,
+    belowskip=6pt,
+    xleftmargin=0.6em,
+    xrightmargin=0.6em
+}
+
+\newtcolorbox{keybox}[2][hcmutblue]{%
+    enhanced,
+    colback=hcmutlight!42,
+    colframe=#1,
+    coltitle=white,
+    fonttitle=\bfseries\small,
+    title={#2},
+    boxrule=0.6pt,
+    leftrule=3pt,
+    arc=2pt,
+    left=7pt,right=7pt,top=5pt,bottom=5pt,
+    breakable
+}
+
+\newcommand{\badge}[2]{%
+    \tcbox[on line,boxsep=1.2pt,left=3pt,right=3pt,top=0.5pt,bottom=0.5pt,%
+           colback=#1!12,colframe=#1!70,boxrule=0.4pt,arc=1.5pt]{%
+        \scriptsize\bfseries\color{#1}#2%
+    }%
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\let\origunderscore\_
+\renewcommand{\_}{\origunderscore\allowbreak}
+
+% =========================================================
+% DOCUMENT BODY
+% =========================================================
+
+\begin{document}
+
+% =========================================================
+% TITLE PAGE (preserved from HCMUT Overleaf template + T5 diacritics)
+% =========================================================
+
+\hypersetup{pageanchor=false}
+\begin{titlepage}
+\thispagestyle{empty}
+\null
+
+\begin{tikzpicture}[
+    remember picture,
+    overlay,
+    every node/.style={
+        inner sep=0pt,
+        outer sep=0pt,
+        text=black
+    }
+]
+
+% DOUBLE BORDER
+\draw[black, line width=3pt]
+    ([xshift=1.5cm,yshift=-2cm]current page.north west)
+    rectangle
+    ([xshift=-1.5cm,yshift=2cm]current page.south east);
+
+\draw[black, line width=1pt]
+    ([xshift=1.65cm,yshift=-2.15cm]current page.north west)
+    rectangle
+    ([xshift=-1.65cm,yshift=2.15cm]current page.south east);
+
+% UNIVERSITY NAME
+\node[
+    anchor=base,
+    font=\normalfont\Large\scshape
+] at ([yshift=-5.95cm]current page.north)
+{
+    Ho Chi Minh City University of Technology
+};
+
+% UNIVERSITY LOGO
+\node[
+    anchor=north
+] at ([yshift=-6.69cm]current page.north)
+{
+    \includegraphics[width=4.1cm]{hcmut.png}
+};
+
+% FACULTY AND COURSE
+\node[
+    anchor=base,
+    font=\normalfont\Large\scshape
+] at ([yshift=-11.52cm]current page.north)
+{
+    Faculty of Computer Science and Engineering
+};
+
+\node[
+    anchor=base,
+    font=\normalfont\Large\scshape
+] at ([yshift=-12.31cm]current page.north)
+{
+    Course: Computer Architecture Lab (CO2008)
+};
+
+% BLUE TITLE BLOCK
+\draw[coverblue, line width=0.4pt]
+    ([xshift=-4.55cm,yshift=-14.64cm]current page.north)
+    --
+    ([xshift=4.55cm,yshift=-14.64cm]current page.north);
+
+\node[
+    anchor=base,
+    text=coverblue,
+    font=\normalfont\Huge\bfseries
+] at ([yshift=-15.88cm]current page.north)
+{
+    Assignment
+};
+
+\node[
+    anchor=base west,
+    text=coverblue,
+    font=\normalfont\LARGE\bfseries
+] at ([xshift=-4.35cm,yshift=-17.15cm]current page.north)
+{
+    Checkers boardgame
+};
+
+\node[
+    anchor=base west,
+    text=coverblue,
+    font=\normalfont\LARGE\bfseries
+] at ([xshift=-4.35cm,yshift=-17.78cm]current page.north)
+{
+    with MARS MIPS Assembly
+};
+
+\draw[coverblue, line width=0.4pt]
+    ([xshift=-4.55cm,yshift=-18.61cm]current page.north)
+    --
+    ([xshift=4.55cm,yshift=-18.61cm]current page.north);
+
+% INSTRUCTOR AND CLASS
+\node[
+    anchor=north,
+    font=\normalfont\Large
+] at ([yshift=-19.45cm]current page.north)
+{
+    \renewcommand{\arraystretch}{1.2}
+    \begin{tabular}{@{}r@{\hspace{0.45cm}}l@{}}
+        \textbf{Instructor:} & \InstructorName \\
+        \textbf{Class:}      & \ClassName
+    \end{tabular}
+};
+
+% GROUP MEMBERS TABLE
+\node[
+    anchor=north,
+    font=\normalfont\large
+] at ([yshift=-21.35cm]current page.north)
+{
+    \fontencoding{T5}\selectfont
+
+    \renewcommand{\arraystretch}{1.4}
+    \renewcommand{\tabularxcolumn}[1]{m{#1}}
+    \setlength{\tabcolsep}{0.25cm}
+    \setlength{\arrayrulewidth}{0.5pt}
+
+    \begin{tabularx}{12.3cm}{
+        |>{\centering\arraybackslash}m{0.9cm}
+        |>{\raggedright\arraybackslash}X
+        |>{\centering\arraybackslash}m{2.8cm}|
+    }
+        \hline
+        \textbf{No.}
+        & \textbf{Full Name}
+        & \textbf{Student ID}
+        \\
+        \hline
+
+        1
+        & \StudentName
+        & \StudentID
+        \\
+        \hline
+
+        2
+        & \MemberTwoName
+        & \MemberTwoID
+        \\
+        \hline
+
+        3
+        & \MemberThreeName
+        & \MemberThreeID
+        \\
+        \hline
+    \end{tabularx}
+};
+
+% LOCATION AND DATE
+\node[
+    anchor=base,
+    font=\normalfont\large
+] at ([yshift=4.35cm]current page.south)
+{
+    \CoverDate
+};
+
+\end{tikzpicture}
+
+\end{titlepage}
+\hypersetup{pageanchor=true}
+
+% =========================================================
+% FRONT MATTER
+% =========================================================
+
+\pagenumbering{roman}
+\tableofcontents
+\clearpage
+\listoffigures
+\vspace{0.45cm}
+\listoftables
+\clearpage
+
+% =========================================================
+% MAIN CONTENT
+% =========================================================
+
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+\input{sections/01_intro}
+\input{sections/02_architecture}
+\input{sections/03_algorithms}
+\input{sections/04_extra_features}
+\input{sections/05_advanced_arch_opt}
+\input{sections/06_audit_testing}
+\input{sections/07_user_guide_demo}
+\input{sections/08_conclusion_refs}
+
+\label{ReportLastPage}
+\end{document}

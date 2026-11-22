@@ -1,0 +1,255 @@
+\section{System Architecture and Software Design}
+\label{sec:arch}
+
+\subsection{Modular File Organization}
+Rather than placing nearly 2,000 lines of assembly in a single monolithic file, the project applies a clean four-file modular architecture under \code{src/}, assembled as a single translation unit via MARS \code{.include} directives in \code{src/main.asm}. Alongside the MIPS implementation, the repository provides an executable C++ reference (\code{src/main.cpp}) whose function names mirror the MIPS procedures one-to-one, an interactive Tkinter replay tool (\code{main.py}), and an automated multi-tier \code{pytest} suite under \code{tests/}.
+
+\begin{table}[H]
+\centering
+\caption{Repository source file inventory and static metrics.}
+\label{tab:file_inventory}
+\renewcommand{\arraystretch}{1.2}
+\rowcolors{2}{rowshade}{white}
+\footnotesize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.3cm} r r r >{\raggedright\arraybackslash}X}
+\toprule
+\rowcolor{hcmutlight}
+File Path & Lines & Code & Funcs & Primary Responsibility \\
+\midrule
+\code{src/defs.asm} & 86 & 66 & 0 (6m) & Shared \code{.eqv} constants (sides, cell ASCII codes, 11 error codes, result flags, RGB palette) and utility macros (\code{push}/\code{pop}/\code{print\_*}). \\
+\code{src/main.asm} & 684 & 569 & 10 & Entry point \code{main}, CLI \code{pa classic} parser, turn orchestration (\code{play\_turn}), move hints, move history, draw offers, interactive settings menu. \\
+\code{src/board\_io.asm} & 646 & 521 & 19 & 64-byte board storage, bitwise coordinate conversions, classic/pretty/rotated text renderers, 64$\times$64 Bitmap Display renderer, buffered \code{syscall 14} input. \\
+\code{src/rules.asm} & 566 & 458 & 13 & Pure rule logic: piece predicates, \code{classify\_move}, \code{validate\_move}, \code{validate\_chain}, \code{can\_capture\_from}, \code{can\_step\_from}, \code{has\_any\_move}, \code{do\_move}. \\
+\midrule
+\textbf{MIPS Core Subtotal} & \textbf{1,982} & \textbf{1,614} & \textbf{42} & \textbf{Assembles to 1,879 basic instructions (7,516 B \code{.text}) and 7,168 B \code{.data}.} \\
+\midrule
+\code{src/main.cpp} & 240 & 194 & 16 & Executable reference pseudocode for bare-minimum English Checkers; cross-checked against \code{test\_001}--\code{test\_005}. \\
+\code{main.py} & 355 & 288 & -- & Tkinter GUI viewer replaying \code{tests/test\_001..005} frame-by-frame with square highlights and piece counts. \\
+\code{tests/unit/rules\_driver.asm} & 159 & 131 & 10 cmd & Stand-alone MIPS harness including \code{defs.asm}, \code{board\_io.asm}, and \code{rules.asm} to inject arbitrary board positions and invoke rule routines directly. \\
+\code{tests/*.py} & 685 & 524 & 47 test & Automated \code{pytest} runners (\code{test\_mips.py}, \code{test\_rules.py}, \code{test\_features.py}, \code{test\_c.py}, \code{mars\_runner.py}, \code{output\_check.py}). \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Figure~\ref{fig:sys_arch} illustrates the compile-time \code{.include} dependency graph, runtime I/O boundaries inside MARS 4.5, and how the isolated unit-test driver reuses \code{board\_io.asm} and \code{rules.asm} without coupling to the interactive loop in \code{main.asm}.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.1cm,
+    box/.style={draw=hcmutblue, rounded corners=3pt, fill=hcmutlight!55, align=center, font=\footnotesize, minimum width=3.1cm, minimum height=0.95cm, thick},
+    subbox/.style={draw=slateink!70, rounded corners=3pt, fill=slatebg, align=center, font=\footnotesize, minimum width=3.0cm, minimum height=0.85cm},
+    extbox/.style={draw=okgreen!80!black, rounded corners=3pt, fill=okgreen!10, align=center, font=\footnotesize, minimum width=3.1cm, minimum height=0.85cm},
+    arr/.style={-{Stealth[length=2.4mm]}, thick, color=hcmutblue},
+    darr/.style={-{Stealth[length=2.2mm]}, dashed, thick, color=slateink!80}
+]
+    % Core MIPS modules
+    \node[box, fill=hcmutblue!16, minimum width=3.5cm] (main) {\textbf{\code{src/main.asm}}\\Control Loop, Menu,\\Hints, History, Draw};
+    \node[box, below left=1.25cm and 1.35cm of main] (defs) {\textbf{\code{src/defs.asm}}\\40 \code{.eqv} Constants\\6 Stack/IO Macros};
+    \node[box, below=1.25cm of main] (bio) {\textbf{\code{src/board\_io.asm}}\\64B Board, Transforms,\\Text/Bitmap I/O, Parser};
+    \node[box, below right=1.25cm and 1.35cm of main] (rules) {\textbf{\code{src/rules.asm}}\\Validation, Captures,\\Promotion, Flying Kings};
+
+    % MARS Runtime
+    \node[subbox, right=1.85cm of main, fill=warnamber!10, draw=warnamber!80!black, minimum width=3.6cm] (mars) {\textbf{MARS 4.5 Simulator}\\Run I/O (\code{syscall 1,4,11,14})\\Bitmap Display (\code{0x10040000})};
+
+    % Test & Auxiliary
+    \node[extbox, below=1.1cm of bio, minimum width=3.5cm] (driver) {\textbf{\code{rules\_driver.asm}}\\Arbitrary Board Loader\\Direct Rule Invocation};
+    \node[extbox, left=0.9cm of driver, minimum width=3.1cm] (tfeat) {\textbf{\code{test\_mips.py} \&}\\ \textbf{\code{test\_features.py}}\\35 End-to-End Tests};
+    \node[extbox, right=0.9cm of driver, minimum width=3.1cm] (trules) {\textbf{\code{test\_rules.py}}\\12 Isolated Unit Tests\\(Fig.~8, Fig.~9, Flying)};
+
+    % Arrows
+    \draw[arr] (main.south west) -- node[above left, font=\tiny\ttfamily, pos=0.5] {.include} (defs.north east);
+    \draw[arr] (main.south) -- node[right, font=\tiny\ttfamily] {.include} (bio.north);
+    \draw[arr] (main.south east) -- node[above right, font=\tiny\ttfamily, pos=0.5] {.include} (rules.north west);
+    \draw[arr, <->] (main.east) -- node[above, font=\tiny] {stdin / stdout} (mars.west);
+    \draw[arr] (bio.north east) -- ++(0.35, 0.35) -| node[pos=0.22, above, font=\tiny, fill=white, inner sep=1pt] {MMIO heap writes} ([xshift=-0.75cm]mars.south);
+    \draw[darr] (driver) -- (defs.south);
+    \draw[darr] (driver) -- (bio.south);
+    \draw[darr] (driver) -- (rules.south);
+    \draw[darr] (tfeat.west) -- ++(-0.55, 0) |- (main.west);
+    \draw[darr] (trules) -- (driver);
+\end{tikzpicture}%
+}
+\caption{Modular MIPS32 software architecture, MARS 4.5 runtime interface, and multi-tier verification topology.}
+\label{fig:sys_arch}
+\end{figure}
+
+\textbf{Design Note on Single-Unit Assembly:} Because \code{main.asm} pulls in \code{defs.asm} at line~22 and appends \code{board\_io.asm} and \code{rules.asm} at lines~683--684 via \code{.include}, users running MARS GUI must disable \emph{Settings $\rightarrow$ Assemble all files in directory}; otherwise MARS would assemble the included files twice and raise duplicate-label errors. Conversely, separating \code{rules.asm} from \code{main.asm} allows \code{tests/unit/rules\_driver.asm} to link only \code{defs.asm}, \code{board\_io.asm}, and \code{rules.asm}, enabling true unit testing of edge-case board configurations without playing full games from the opening position.
+
+\subsection{Board Representation and Bitwise Coordinate Transforms}
+\label{sec:board_rep}
+Two representations are common for Checkers engines: a compressed 32-byte array (or bitboards) storing only playable dark squares, or a full $8 \times 8 = 64$-byte array. Our implementation deliberately selects a \textbf{flat 64-byte row-major array} \code{board[r*8 + c]} storing printable ASCII characters directly:
+\begin{itemize}
+    \item \code{'\_'} (ASCII 95, \code{UNUSED}): inaccessible light squares where $(r + c) \bmod 2 = 0$;
+    \item \code{'0'} (ASCII 48, \code{EMPTY}): unoccupied dark playable squares where $(r + c) \bmod 2 = 1$;
+    \item \code{'b'}/\code{'B'} (ASCII 98/66): Black pawn / Black king (moves upward, $dr = -1$, promotes at row $r = 0$);
+    \item \code{'r'}/\code{'R'} (ASCII 114/82): Red pawn / Red king (moves downward, $dr = +1$, promotes at row $r = 7$).
+\end{itemize}
+
+\textbf{Architectural Trade-off Justification:} Storing 64 ASCII bytes costs only 32 extra bytes over a compact 32-byte array, yet eliminates every parity branch during move generation and rendering:
+\begin{enumerate}
+    \item \textbf{Uniform diagonal geometry:} Every diagonal step is simply $(r \pm k, c \pm k)$, and off-board checks in \code{get\_cell} require only four unsigned/signed range comparisons ($0 \le r < 8$, $0 \le c < 8$).
+    \item \textbf{Zero-translation classic output:} \code{print\_board\_plain} loads \code{board[idx]} via \code{lbu} and passes the byte directly to \code{syscall 11} (\code{print\_char}) with no lookup table.
+    \item \textbf{Power-of-two addressing:} Computing $r \times 8 + c$ compiles to a single \code{sll \$t0, \$a0, 3} followed by \code{add \$t0, \$t0, \$a1}, avoiding costly \code{mul}/\code{div} instructions.
+\end{enumerate}
+
+\paragraph{Bitwise Square--Coordinate Bijection.}
+Standard Checkers notation numbers the 32 dark squares from $s = 1$ (top-left dark square, $(0,1)$) to $s = 32$ (bottom-right dark square, $(7,6)$). Both directions of the bijection between square number $s \in [1, 32]$ and $(r, c) \in [0, 7]^2$ are implemented purely with shifts, masks, and XOR in \code{src/board\_io.asm}:
+\begin{align}
+    r &= \lfloor (s - 1) / 4 \rfloor = (s - 1) \gg 2, &
+    c &= 2\big((s - 1) \bmod 4\big) + \big((r \mathbin{\&} 1) \oplus 1\big), \label{eq:sq2rc}\\
+    s &= 4r + \lfloor c / 2 \rfloor + 1 = (r \ll 2) + (c \gg 1) + 1. \label{eq:idx2sq}
+\end{align}
+Because row $0$ begins with a light square at $(0,0)$, even rows shift playable columns right by $+1$ (columns $1,3,5,7$), whereas odd rows place playable columns at $0,2,4,6$. The expression \code{andi \$t2, \$v0, 1; xori \$t2, \$t2, 1} computes this offset branchlessly in two single-cycle R/I-type instructions.
+
+\paragraph{Involution-Based 180$^\circ$ Rotation and Player-Relative Numbering.}
+When displaying the board from Red's perspective (\code{opt\_rotate = 1} or \code{opt\_relnum = 1}), rotating the $8 \times 8$ board by $180^\circ$ maps displayed cell $(r', c')$ to underlying index:
+\begin{align}
+    \text{view\_index}(r', c', \text{rot}) &=
+    \begin{cases}
+        8r' + c', & \text{rot} = 0, \\
+        63 - (8r' + c'), & \text{rot} = 1,
+    \end{cases}
+    \label{eq:rot_idx} \\[4pt]
+    \text{view\_square}(s, \text{side}) &=
+    \begin{cases}
+        33 - s, & \text{side} = \text{RED} \land \text{opt\_relnum} = 1, \\
+        s, & \text{otherwise.}
+    \end{cases}
+    \label{eq:rot_rel}
+\end{align}
+Crucially, $f(s) = 33 - s$ is an \textbf{involution} ($f(f(s)) = s$). Therefore, the exact same 11-instruction routine \code{view\_square} serves \emph{both} output formatting (converting canonical square numbers to Red's view in \code{print\_board\_pretty}, \code{print\_movable\_pieces}, and \code{print\_landing\_squares}) and input decoding (converting Red's typed square back to canonical coordinates inside \code{read\_square}). Figure~\ref{fig:coords} visualizes this coordinate geometry side-by-side.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[scale=0.52, every node/.style={font=\scriptsize}]
+    % Left board: Standard (Black's view)
+    \node[font=\footnotesize\bfseries, color=hcmutblue] at (4, 8.7) {(a) Canonical Numbering (Black's View)};
+    \foreach \r in {0,...,7} {
+        \foreach \c in {0,...,7} {
+            \pgfmathtruncatemacro{\dark}{mod(\r+\c,2)}
+            \pgfmathtruncatemacro{\y}{7-\r}
+            \ifnum\dark=1
+                \fill[hcmutblue!28] (\c,\y) rectangle (\c+1,\y+1);
+                \pgfmathtruncatemacro{\sq}{\r*4 + int(\c/2) + 1}
+                \node[color=slateink] at (\c+0.5,\y+0.5) {\textbf{\sq}};
+            \else
+                \fill[slatebg] (\c,\y) rectangle (\c+1,\y+1);
+            \fi
+            \draw[slateink!45, very thin] (\c,\y) rectangle (\c+1,\y+1);
+        }
+    }
+    % Row/col axes left
+    \foreach \i in {0,...,7} {
+        \node[font=\tiny\ttfamily, color=gray] at (-0.45, 7.5-\i) {r=\i};
+        \node[font=\tiny\ttfamily, color=gray] at (\i+0.5, -0.4) {c=\i};
+    }
+    \node[font=\tiny\bfseries, color=codereg] at (4, 8.2) {Red starts (1--12), moves down ($dr=+1$)};
+    \node[font=\tiny\bfseries, color=slateink] at (4, -0.95) {Black starts (21--32), moves up ($dr=-1$)};
+
+    % Center transform arrow
+    \draw[-{Stealth[length=2.5mm]}, thick, color=hcmutblue] (8.7, 4.4) -- (12.1, 4.4)
+        node[midway, above, align=center, font=\tiny\ttfamily] {180$^\circ$ rot:\\idx' = 63 - idx};
+    \draw[{Stealth[length=2.5mm]}-{Stealth[length=2.5mm]}, thick, color=warnamber] (8.7, 3.1) -- (12.1, 3.1)
+        node[midway, below, align=center, font=\tiny\ttfamily] {opt\_relnum=1:\\s' = 33 - s};
+
+    % Right board: Red's view with opt_relnum=1 (shows both red's number and canonical in parens)
+    \begin{scope}[xshift=13cm]
+        \node[font=\footnotesize\bfseries, color=codereg] at (4, 8.7) {(b) Red's Rotated View (\code{opt\_relnum = 1})};
+        \foreach \r in {0,...,7} {
+            \foreach \c in {0,...,7} {
+                \pgfmathtruncatemacro{\dark}{mod(\r+\c,2)}
+                \pgfmathtruncatemacro{\y}{7-\r}
+                \ifnum\dark=1
+                    \fill[codereg!16] (\c,\y) rectangle (\c+1,\y+1);
+                    \pgfmathtruncatemacro{\sq}{\r*4 + int(\c/2) + 1}
+                    \pgfmathtruncatemacro{\canon}{33 - \sq}
+                    \node[color=codereg!90!black, yshift=2pt] at (\c+0.5,\y+0.5) {\textbf{\sq}};
+                    \node[font=\fontsize{4.8}{5}\selectfont, color=gray, yshift=-4pt] at (\c+0.5,\y+0.5) {(\canon)};
+                \else
+                    \fill[slatebg] (\c,\y) rectangle (\c+1,\y+1);
+                \fi
+                \draw[slateink!45, very thin] (\c,\y) rectangle (\c+1,\y+1);
+            }
+        }
+        \node[font=\tiny\bfseries, color=slateink] at (4, 8.2) {Black pieces now at top (canonical 32--21)};
+        \node[font=\tiny\bfseries, color=codereg] at (4, -0.55) {Red's bottom-left is square 29 (canonical 4)};
+        \node[font=\tiny, color=gray] at (4, -1.0) {Small parentheses show underlying canonical index};
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Canonical $8\times 8$ checkerboard indexing versus Red's $180^\circ$-rotated, player-relative coordinate view. For example, typing \code{24-20} in Red's view translates via $33 - s$ to canonical move \code{9-13}.}
+\label{fig:coords}
+\end{figure}
+
+\subsection{MIPS32 Memory Map, Register Discipline, and Calling Conventions}
+\label{sec:mem_abi}
+Understanding how a program inhabits the MARS 32-bit virtual address space is central to CO2008. Direct static dumps from \code{Mars45.jar} (\code{dump .text} and \code{dump .data}) combined with static call-graph analysis establish the exact memory footprint shown in Table~\ref{tab:memory_map} and Figure~\ref{fig:mem_map}.
+
+\begin{table}[H]
+\centering
+\caption{Exact MARS 4.5 memory footprint of the assembled Checkers program.}
+\label{tab:memory_map}
+\renewcommand{\arraystretch}{1.2}
+\rowcolors{2}{rowshade}{white}
+\footnotesize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.0cm} l r >{\raggedright\arraybackslash}X}
+\toprule
+\rowcolor{hcmutlight}
+Segment / Region & Base Address & Bytes & Contents \& Architectural Notes \\
+\midrule
+\code{.text} (Code) & \code{0x00400000} & 7,516 & 1,879 assembled MIPS32 basic instructions across 42 procedures (expanded from 1,614 non-comment lines with pseudo-instructions and macros). \\
+\code{.data}: History & \code{0x10010000}+ & 4,000 & \code{history} ring/linear array: \code{HISTORY\_MAX = 1000} entries $\times$ 4 packed bytes (\code{from}, \code{to}, \code{flags}, \code{side}). \\
+\code{.data}: Strings/Tables & \code{0x10010000}+ & 2,598 & Menu prompts, pretty-board frames, \code{option\_labels} (36 B), \code{err\_table} (48 B), and 11 detailed diagnostic strings. \\
+\code{.data}: Input Buffers & \code{0x10010000}+ & 328 & \code{input\_chunk} (256 B chunk buffer for \code{syscall 14}), \code{input\_line} (64 B line buffer), \code{input\_next}/\code{input\_end} cursors (8 B). \\
+\code{.data}: Board/Sprites & \code{0x10010000}+ & 192 & \code{board} (64 B live state), \code{start\_board} (64 B initial template), \code{piece\_mask} (64 B $8\times 8$ sprite \& crown mask). \\
+\code{.data}: Scalars/Opts & \code{0x10010000}+ & 48 & \code{turn}, \code{draw\_offer}, \code{history\_len}, and 9 contiguous option words \code{opt\_pretty}..\code{opt\_replay} (+2 B word-alignment padding $\Rightarrow$ 7,168 B used). \\
+\code{.heap} (MMIO Bitmap) & \code{0x10040000} & 16,384 & $64 \times 64$ words (32-bit \code{0x00RRGGBB}) mapped directly to MARS Bitmap Display ($512 \times 512$ px at $8\times 8$ unit size). Zero \code{sbrk} overlap. \\
+\code{.stack} (Runtime) & \code{0x7FFFEFFC}$\downarrow$ & $\le 104$ & Strictly bounded call stack (no recursion). Deepest chain: \code{main}$\to$\code{play\_turn}$\to$\code{print\_landing\_squares}$\to$\code{validate\_move}$\to$\code{classify\_move}$\to$\code{check\_start}$\to$\code{square\_piece}. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    seg/.style={draw=slateink, text width=7.3cm, align=center, font=\footnotesize, inner sep=4pt, rounded corners=1.5pt},
+    lbl/.style={font=\scriptsize\ttfamily, anchor=east, color=slateink!85},
+    note/.style={font=\scriptsize, anchor=west, align=left, text width=4.8cm, color=slateink}
+]
+    % Memory stack vertical diagram
+    \node[seg, fill=hcmutblue!18, minimum height=0.9cm] (text) at (0, 3.7) {\textbf{.text Segment} --- 7,516 B (1,879 instrs)};
+    \node[seg, fill=infoblue!14, minimum height=1.25cm] (data) at (0, 2.25) {\textbf{.data Segment} --- 7,168 B used\\[1pt]\scriptsize \code{history}(4000B) $|$ strings(2598B) $|$ I/O(328B)\\\scriptsize board/mask(192B) $|$ state/opts(48B)};
+    \node[seg, fill=okgreen!16, minimum height=1.0cm] (heap) at (0, 0.75) {\textbf{Heap / Bitmap Framebuffer} --- 16,384 B\\[1pt]\scriptsize $64\times 64$ 32-bit RGB pixels (\code{0x10040000}--\code{0x10043FFF})};
+    \node[seg, fill=warnamber!16, minimum height=0.95cm] (stack) at (0, -0.75) {\textbf{Runtime Stack} --- max depth \textbf{104 B} ($\downarrow$)\\[1pt]\scriptsize Zero recursion; 100\% symmetric \code{push}/\code{pop}};
+
+    % Addresses on left
+    \node[lbl] at (-3.95, 3.95) {0x00400000};
+    \node[lbl] at (-3.95, 2.7)  {0x10010000};
+    \node[lbl] at (-3.95, 1.05) {0x10040000};
+    \node[lbl] at (-3.95, -0.45){0x7FFFEFFC};
+
+    % Annotations on right
+    \node[note] at (4.0, 3.7)  {42 procedures: 17 leaf, 25 non-leaf\\Contiguous single-unit \code{.include} layout};
+    \node[note] at (4.0, 2.25) {Indexed option array \code{options[0..8]}\\enables branchless menu toggling};
+    \node[note] at (4.0, 0.75) {Written only when \code{opt\_bitmap = 1};\\no \code{sbrk} calls $\Rightarrow$ zero collision risk};
+    \node[note] at (4.0, -0.75){Two tied deepest paths of 104 B:\\via \code{classify\_move} or \code{can\_capture\_from}};
+
+    % Gap dots between heap and stack
+    \draw[dotted, thick, gray] (0, 0.22) -- (0, -0.25);
+\end{tikzpicture}%
+}
+\caption{MARS32 virtual memory layout and bounded runtime stack profile of the Checkers implementation.}
+\label{fig:mem_map}
+\end{figure}
+
+\paragraph{Calling Convention, Macros, and Syscalls.}
+Every routine across \code{main.asm}, \code{board\_io.asm}, and \code{rules.asm} strictly obeys the standard MIPS32 ABI:
+\begin{itemize}
+    \item Arguments pass in \code{\$a0}--\code{\$a3}; return values return in \code{\$v0} (and \code{\$v1} for error codes in \code{classify\_move}, \code{validate\_move}, and \code{validate\_chain}).
+    \item All 17 leaf routines (including tail-call \code{is\_enemy $\to$ is\_own} and zero-call \code{draw\_bitmap}) avoid unnecessary \code{\$ra} saves; all 25 non-leaf procedures save \code{\$ra} and every modified \code{\$s0}--\code{\$s7} via symmetric \code{push}/\code{pop} macros defined in \code{defs.asm}.
+    \item Five MARS syscalls power the entire runtime: \code{1} (\code{print\_int}), \code{4} (\code{print\_string}), \code{10} (\code{exit}), \code{11} (\code{print\_char}), and \code{14} (\code{read\_file} on file descriptor \code{0 = stdin}). Notably, \code{syscall 5} (\code{read\_int}) and \code{syscall 8} (\code{read\_string}) are intentionally avoided because \code{syscall 5} crashes MARS on non-numeric strings and \code{syscall 8} cannot reliably distinguish empty lines from EOF in piped CLI runs.
+\end{itemize}

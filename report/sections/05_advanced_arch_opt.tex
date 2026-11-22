@@ -1,0 +1,230 @@
+\section{Advanced Data Structures, MIPS32 Microarchitecture, and Measured Optimizations}
+\label{sec:advanced_arch}
+
+To situate our MARS MIPS32 implementation against state-of-the-art draughts engine literature and modern computer architecture principles \cite{schaeffer2007,patterson2020,hennessy2019}, this section conducts three rigorous investigations: (i) a formal architectural comparison against 32-bit Chinook-style SWAR bitboards and Kogge-Stone sliding-ray generators, (ii) a binary-level MIPS32 instruction mix, 5-stage pipeline hazard, and L1 cache locality audit, and (iii) live MARS 4.5 benchmarks of three working optimization prototypes.
+
+\subsection{Board Representations: 64-Byte Mailbox vs.\ 32-Bit Chinook SWAR Bitboards}
+\label{sec:bitboard_compare}
+High-performance tournament checkers engines---originating with Samuel's 36-bit ghost-square layout \cite{samuel1959}, Jonathan Schaeffer's world-champion solver \emph{Chinook} \cite{schaeffer2007}, Martin Fierz's \emph{Cake} \cite{fierz_cake}, Fabien Letouzey's international draughts engine \emph{Scan} \cite{letouzey_scan}, and modern open-source engines such as \code{rapid-draughts} \cite{rapid_draughts} and \code{py-draughts} \cite{py_draughts}---exploit the fact that English Checkers uses exactly 32 dark squares. Consequently, the entire board state compresses into just \textbf{three 32-bit CPU registers} (12 bytes total!): Black occupancy \code{BP} (\code{\$a0}), Red occupancy \code{RP} (\code{\$a1}), and King mask \code{K} (\code{\$a2}), with empty squares derived in two cycles as $\code{E} = \neg(\code{BP} \mid \code{RP})$.
+
+Because consecutive rows alternate parity every 4 bits (even rows $0,2,4,6$ sit in nibbles $0,2,4,6$; odd rows $1,3,5,7$ sit in nibbles $1,3,5,7$), naive shifts wrap pieces illegally across board edges. Applying \textbf{SWAR (SIMD Within A Register)} shift-and-mask operators with mathematically exact edge masks (derived for canonical bit index $b = s - 1 \in [0, 31]$ and verified across 10,000 random board states with 0 discrepancies) computes single-step moves across \emph{all 32 squares simultaneously}:
+\begin{align}
+    \mathrm{NW}(X) &= \big((X \mathbin{\&} \texttt{0x0F0F0F00}) \gg 4\big) \mid \big((X \mathbin{\&} \texttt{0xE0E0E0E0}) \gg 5\big), \\
+    \mathrm{NE}(X) &= \big((X \mathbin{\&} \texttt{0xF0F0F0F0}) \gg 4\big) \mid \big((X \mathbin{\&} \texttt{0x07070700}) \gg 3\big), \\
+    \mathrm{SW}(X) &= \big((X \mathbin{\&} \texttt{0x0F0F0F0F}) \ll 4\big) \mid \big((X \mathbin{\&} \texttt{0x00E0E0E0}) \ll 3\big), \\
+    \mathrm{SE}(X) &= \big((X \mathbin{\&} \texttt{0x00F0F0F0}) \ll 4\big) \mid \big((X \mathbin{\&} \texttt{0x07070707}) \ll 5\big).
+\end{align}
+Remarkably, because each step flips row parity, composing the same directional operator twice automatically applies the complementary parity mask; thus Black's global forced-capture test collapses into a single parallel boolean expression ($B_K = \code{BP} \mathbin{\&} \code{K}$):
+\begin{equation}
+    \text{Cap}_{\text{Black}} =
+    \Big[\mathrm{NW}\big(\mathrm{NW}(\code{BP}) \mathbin{\&} \code{RP}\big)
+    \;\Big|\; \mathrm{NE}\big(\mathrm{NE}(\code{BP}) \mathbin{\&} \code{RP}\big)
+    \;\Big|\; \mathrm{SW}\big(\mathrm{SW}(B_K) \mathbin{\&} \code{RP}\big)
+    \;\Big|\; \mathrm{SE}\big(\mathrm{SE}(B_K) \mathbin{\&} \code{RP}\big)\Big] \mathbin{\&} \code{E}.
+    \label{eq:swar_cap}
+\end{equation}
+For Flying Kings on bitboards, modern engines such as \emph{Scan} \cite{letouzey_scan} generalize these shifts via \textbf{Kogge-Stone parallel prefix fills} (doubling ray reach in $\lceil \log_2 7 \rceil = 3$ steps per direction) or padded 36-bit/64-bit ghost-square words (where fixed border bits satisfy $\code{BORDER} \oplus \code{OCC} \oplus \code{EMPTY} = -1$ and eliminate parity branching altogether \cite{samuel1959,fierz_cake}). Figure~\ref{fig:bitboard_vs_mailbox} and Table~\ref{tab:rep_tradeoff} contrast the three paradigms specifically for a 32-bit MIPS architecture.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    box/.style={draw=hcmutblue, rounded corners=2.5pt, fill=hcmutlight!45, align=center, font=\scriptsize, inner sep=4pt, thick},
+    reg/.style={draw=deeppurple, rounded corners=2pt, fill=deeppurple!10, align=center, font=\scriptsize\ttfamily, minimum width=4.6cm, minimum height=0.55cm, thick},
+    arr/.style={-{Stealth[length=2.1mm]}, thick, color=slateink}
+]
+    % Left: Current 64B ASCII Row-Major Mailbox
+    \node[font=\footnotesize\bfseries, color=hcmutblue] at (0, 3.35) {(a) Implemented: 64-Byte ASCII Mailbox};
+    \node[box, minimum width=5.6cm, minimum height=1.25cm] (mb) at (0, 2.25) {\textbf{\code{board[0..63]} in \code{.data}} (1 L1D cache line)\\\scriptsize \code{"\_r\_r\_r\_r r\_r\_r\_r\_ ... b\_b\_b\_b\_"}\\Direct \code{lbu} $\to$ \code{syscall 11} printing};
+    \node[box, fill=slatebg, draw=slateink!70, minimum width=5.6cm] (mbloop) at (0, 0.72) {\code{side\_has\_capture}: loops $s=1..32 \times 4$ dirs\\Measured MARS cost: \textbf{$\approx$4,408 instrs/call}};
+    \draw[arr] (mb) -- (mbloop);
+
+    % Center VS badge
+    \node[circle, draw=warnamber, fill=warnamber!15, font=\footnotesize\bfseries, text=warnamber, inner sep=4pt] at (3.85, 1.6) {vs.};
+
+    % Right: 32-bit Chinook SWAR Bitboard
+    \begin{scope}[xshift=8.2cm]
+        \node[font=\footnotesize\bfseries, color=deeppurple] at (0, 3.35) {(b) SOTA Research: 32-Bit SWAR Bitboard (3 Regs)};
+        \node[reg] (r0) at (0, 2.65) {\$a0 = BP (32-bit Black mask)};
+        \node[reg] (r1) at (0, 2.00) {\$a1 = RP (32-bit Red mask)};
+        \node[reg] (r2) at (0, 1.35) {\$a2 = K\ \ (32-bit King mask)};
+        \node[box, draw=deeppurple, fill=deeppurple!8, minimum width=5.6cm] (swar) at (0, 0.42) {Parallel shifts ($\gg 4,5,3$; $\ll 4,5,3$) + nibble masks\\Measured MARS cost: \textbf{39--73 instrs/call (60--113$\times$!)}};
+        \draw[arr, color=deeppurple] (r2.south) -- (swar.north);
+    \end{scope}
+\end{tikzpicture}%
+}
+\caption{Architectural comparison between our 64-byte ASCII row-major mailbox (chosen for readability, direct MARS I/O, and zero-branch Flying King rays) and a 32-bit Chinook-style SWAR bitboard engine fitting in three MIPS32 registers.}
+\label{fig:bitboard_vs_mailbox}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Quantitative trade-off across three Checkers board representations on MIPS32.}
+\label{tab:rep_tradeoff}
+\renewcommand{\arraystretch}{1.2}
+\rowcolors{2}{rowshade}{white}
+\scriptsize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{1.6cm} >{\raggedright\arraybackslash}p{2.1cm} >{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}X}
+\toprule
+\rowcolor{hcmutlight}
+Representation & Board RAM & \code{side\_has\_cap} & Flying King & Engineering Suitability for CO2008 MIPS32 \\
+\midrule
+\textbf{64B ASCII Mailbox} (Implemented) & 64\,B (1 L1 line) & $\sim$4,408 instrs & Stride loop ($8\cdot dr + dc$) & Optimal for human play, readability, direct \code{syscall 11} display, and clean Flying King / Bitmap integration. \\
+\textbf{32-Bit SWAR Bitboard} \cite{schaeffer2007,rapid_draughts} & 12\,B (3 regs) & \textbf{39--73 instrs} (60--113$\times$) & Kogge-Stone 3-step prefix fill & Optimal for high-speed minimax/alpha-beta AI search trees ($>10^6$ nodes/s); requires bit-unpacking for text/Bitmap I/O. \\
+\textbf{36-Bit Ghost-Square} \cite{samuel1959,fierz_cake} & 24\,B (3$\times$64b) & Constant shifts (+4/+5) & 64-bit masked ray shifts & Needs 64-bit registers (\code{uint64\_t}); emulating 64-bit shifts on 32-bit MIPS32 doubles register pressure and instruction count. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{MIPS32 Binary Instruction Mix, 5-Stage Pipeline Hazards, and Cache Locality}
+\label{sec:microarch}
+Directly decoding all \textbf{1,879 assembled 32-bit machine words} dumped from \code{Mars45.jar} (\code{dump .text HexText}) reveals the program's exact static microarchitectural profile (Figure~\ref{fig:deep_chart}a): I-type ALU/address setup accounts for 38.74\% (728 words, reflecting MIPS pseudo-instruction expansions like \code{la}/\code{li} into \code{lui}/\code{ori}), R-type ALU 14.85\% (279), jumps/calls 10.16\% (191), conditional branches 10.06\% (189), loads 8.57\% (161), stores 6.65\% (125), shift/bitwise ops 6.01\% (113), and syscalls 4.95\% (93).
+
+\paragraph{Classic 5-Stage MIPS Pipeline Hazard Audit \cite{patterson2020}.}
+Scanning adjacent decoded instructions for register Read-After-Write (RAW) dependencies yields two concrete hardware findings:
+\begin{itemize}
+    \item \textbf{EX/MEM $\to$ EX Forwarding Reliance:} \textbf{636 instruction pairs (33.8\%)} read a register written by the immediately preceding ALU/shift instruction. On a pipelined MIPS32 datapath with full forwarding paths, all 636 execute with \emph{zero stall cycles}; without forwarding, CPI would degrade by $>1.3\times$.
+    \item \textbf{Load-Use Stall Hazards:} Exactly \textbf{33 of 161 static loads (20.5\%)} feed their loaded destination register \code{\$rt} directly into the very next instruction. Notably, one such load-use hazard sits inside the hottest inner loop of the entire program---\code{draw\_bitmap\_x} (\code{src/board\_io.asm}, lines~612--613), executed 4,096 times per rendered frame: \code{lbu \$t3, piece\_mask(\$t3)} immediately followed by \code{beqz \$t3, draw\_bitmap\_put}. As Figure~\ref{fig:pipeline_hazard} illustrates, even with MEM/WB forwarding, the branch stalls for 1--2 cycles waiting for \code{\$t3}, whereas \textbf{instruction scheduling} (hoisting the independent pixel address shift \code{sll \$t4, \$s0, 3} into the load delay slot) eliminates the bubble completely.
+\end{itemize}
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    st/.style={draw=slateink!75, minimum width=0.92cm, minimum height=0.52cm, font=\scriptsize\bfseries, align=center},
+    pIF/.style={st, fill=hcmutblue!18},
+    pID/.style={st, fill=infoblue!15},
+    pEX/.style={st, fill=okgreen!18},
+    pMEM/.style={st, fill=warnamber!22},
+    pWB/.style={st, fill=deeppurple!16},
+    pSTL/.style={st, fill=codereg!22, text=codereg!90!black},
+    codecol/.style={font=\scriptsize\ttfamily, anchor=east, color=slateink}
+]
+    % Title
+    \node[font=\footnotesize\bfseries, color=hcmutblue, anchor=west] at (-4.9, 3.45) {Real Inner-Loop Load-Use Hazard in \code{src/board\_io.asm:612--614} (5-Stage Pipeline with Forwarding)};
+    % Cycle header
+    \foreach \c in {1,...,8} {
+        \node[font=\scriptsize\bfseries, color=slateink] at (\c*1.0 - 0.5, 2.95) {CC\c};
+    }
+    % Row 1: lbu $t3, piece_mask($t3)
+    \node[codecol] at (-0.15, 2.35) {L612: lbu \$t3, piece\_mask(\$t3)};
+    \node[pIF]  (r1f) at (0.5, 2.35) {IF};
+    \node[pID]  (r1d) at (1.5, 2.35) {ID};
+    \node[pEX]  (r1e) at (2.5, 2.35) {EX};
+    \node[pMEM] (r1m) at (3.5, 2.35) {MEM};
+    \node[pWB]  (r1w) at (4.5, 2.35) {WB};
+
+    % Row 2: beqz $t3, draw_bitmap_put (stalled 1 cycle for MEM->EX forward)
+    \node[codecol] at (-0.15, 1.65) {L613: beqz \$t3, draw\_bitmap\_put};
+    \node[pIF]  (r2f) at (1.5, 1.65) {IF};
+    \node[pID]  (r2d) at (2.5, 1.65) {ID};
+    \node[pSTL] (r2s) at (3.5, 1.65) {STALL};
+    \node[pEX]  (r2e) at (4.5, 1.65) {EX};
+    \node[pMEM] (r2m) at (5.5, 1.65) {MEM};
+    \node[pWB]  (r2w) at (6.5, 1.65) {WB};
+
+    % Forwarding arrow from MEM of lbu to EX of beqz
+    \draw[-{Stealth[length=2.1mm]}, very thick, color=codereg] (r1m.south east) -- (r2e.north west);
+    \node[font=\tiny\bfseries, color=codereg, anchor=west] at (5.05, 2.35) {MEM$\to$EX forward (\$t3 ready end of CC4)};
+
+    % Divider + Scheduled zero-stall solution
+    \draw[dashed, gray] (-4.9, 1.15) -- (8.3, 1.15);
+    \node[font=\footnotesize\bfseries, color=okgreen!85!black, anchor=west] at (-4.9, 0.85) {Zero-Stall Scheduled Version (Hoist Independent Address Shift into Load Delay Slot):};
+
+    \node[codecol] at (-0.15, 0.25) {lbu \$t3, piece\_mask(\$t3)};
+    \node[pIF]  (s1f) at (0.5, 0.25) {IF};
+    \node[pID]  (s1d) at (1.5, 0.25) {ID};
+    \node[pEX]  (s1e) at (2.5, 0.25) {EX};
+    \node[pMEM] (s1m) at (3.5, 0.25) {MEM};
+    \node[pWB]  (s1w) at (4.5, 0.25) {WB};
+
+    \node[codecol, color=okgreen!75!black] at (-0.15, -0.42) {sll \$t4, \$s0, 3 \ (hoisted)};
+    \node[pIF]  at (1.5, -0.42) {IF};
+    \node[pID]  at (2.5, -0.42) {ID};
+    \node[pEX]  at (3.5, -0.42) {EX};
+    \node[pMEM] at (4.5, -0.42) {MEM};
+    \node[pWB]  at (5.5, -0.42) {WB};
+
+    \node[codecol] at (-0.15, -1.09) {beqz \$t3, draw\_bitmap\_put};
+    \node[pIF]  at (2.5, -1.09) {IF};
+    \node[pID]  at (3.5, -1.09) {ID};
+    \node[pEX]  (s3e) at (4.5, -1.09) {EX};
+    \node[pMEM] at (5.5, -1.09) {MEM};
+    \node[pWB]  at (6.5, -1.09) {WB};
+
+    \draw[-{Stealth[length=2.1mm]}, very thick, color=okgreen!80!black] (s1m.south east) -- (s3e.north west);
+    \node[font=\tiny\bfseries, color=okgreen!80!black, anchor=west] at (5.9, -0.42) {0 stalls (saves 1 cycle/pixel $\approx$ 4k cycles/frame)};
+\end{tikzpicture}%
+}
+\caption{MIPS 5-stage pipeline timing analysis of a real load-use hazard inside \code{draw\_bitmap\_x} (\code{src/board\_io.asm:612--613}) and zero-stall resolution via instruction scheduling \cite{patterson2020}.}
+\label{fig:pipeline_hazard}
+\end{figure}
+
+\paragraph{L1 Data-Cache Locality Profile.}
+On a canonical 4\,KiB direct-mapped L1 data cache with 64-byte blocks \cite{patterson2020}:
+\begin{itemize}
+    \item \textbf{\code{board[64]} and \code{piece\_mask[64]}:} Each array is \emph{exactly one 64-byte cache line}. Once fetched by a single compulsory miss, every subsequent cell read/write inside \code{classify\_move}, \code{has\_any\_move}, and \code{draw\_bitmap} hits in L1D with 100\% temporal and spatial locality.
+    \item \textbf{\code{draw\_bitmap} 16\,KiB stream:} Writing 4,096 consecutive words (\code{0x10040000}--\code{0x10043FFF}) touches 256 cache lines ($4\times$ larger than a 4\,KiB L1D), causing continuous capacity eviction of \code{board}/\code{piece\_mask} unless writes are either non-temporal or restricted to dirty tiles (Prototype~2 below, which touches only 2--3 tiles $\approx 192$ words = 12--24 cache lines per move).
+\end{itemize}
+
+\subsection{Empirically Benchmarked Optimization Prototypes (Live MARS 4.5)}
+\label{sec:opt_prototypes}
+Guided by Amdahl's Law \cite{hennessy2019}---which dictates optimizing the dominant execution fractions shown in Section~\ref{sec:benchmarks}---we implemented and live-benchmarked three isolated optimization prototypes (preserving the original repository untouched while verifying 100\% identical output/pixels on \code{Mars45.jar}):
+
+\begin{table}[H]
+\centering
+\caption{Live MARS 4.5 instruction-count benchmarks of three optimization prototypes vs.\ baseline.}
+\label{tab:opt_bench}
+\renewcommand{\arraystretch}{1.22}
+\rowcolors{2}{rowshade}{white}
+\footnotesize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.2cm} r r c >{\raggedright\arraybackslash}X}
+\toprule
+\rowcolor{hcmutlight}
+Optimization Prototype & Baseline \code{ic} & Optimized \code{ic} & Speedup & Architectural Mechanism \& Equivalence Check \\
+\midrule
+\textbf{P1: Ray-Cached Hints}\newline (\code{test\_001}, Pretty+Hints) & 1,512,982 & 696,851 & \badge{infoblue}{2.17$\times$} &
+Cache \code{side\_has\_capture} once per turn in \code{\$s3} and query \code{can\_capture\_from}/\code{can\_step\_from} ($O(4)$ rays vs.\ $O(32)$ \code{validate\_move}). Pure hint cost drops \textbf{3.07$\times$}; stdout 100\% byte-identical. \\
+
+\textbf{P1: Ray-Cached Hints}\newline (Flying+Forced Demo) & 1,172,123 & 407,654 & \badge{infoblue}{2.88$\times$} &
+Even higher gain ($-65.2\%$) when \code{opt\_forced = 1} because redundant nested \code{side\_has\_capture} rescans are eliminated. \\
+
+\textbf{P2: Dirty-Tile Bitmap}\newline (\code{test\_001}, Classic+Bmp) & 2,812,330 & 331,945 & \badge{okgreen}{8.47$\times$} &
+Maintain 64-byte \code{bmp\_cache} + \code{bmp\_last\_rot}; skip unchanged tiles (redraw only 2--3 modified tiles/move, full redraw on rotation flip). Pure Bitmap cost drops \textbf{12.0$\times$}; \textbf{4,096/4,096 pixels identical}. \\
+
+\textbf{P2: Dirty-Tile Bitmap}\newline (\code{test\_001}, Pretty+Bmp) & 3,014,063 & 533,678 & \badge{okgreen}{5.65$\times$} &
+Cuts total instructions by $-82.3\%$ in default Pretty+Bitmap mode while keeping identical heap framebuffer at \code{0x10040000}. \\
+
+\textbf{P3: 32-Bit SWAR Bitboard}\newline (\code{side\_has\_capture}, 4-dir) & $\sim$4,408 & 73 & \badge{deeppurple}{60.4$\times$} &
+Parallel shift-mask capture detection in 3 registers (\code{BP}, \code{RP}, \code{K}) across all 4 diagonals simultaneously (Eq.~\ref{eq:swar_cap}). \\
+
+\textbf{P3: 32-Bit SWAR Bitboard}\newline (\code{side\_has\_capture}, pawns) & $\sim$4,408 & 39 & \badge{deeppurple}{113.0$\times$} &
+Zero-king fast path skips backward SW/SE masks (\code{beqz \$t7, bb\_done}); verified across 10,000 random positions. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{lstlisting}[style=mipsstyle, caption={Excerpt of verified MIPS32 32-bit Chinook SWAR bitboard capture detector (Prototype P3: 39--73 instrs/call, 60--113$\times$ faster than 64-byte array loop).}, label={lst:swar_mips}]
+bb_black_can_capture:             # $a0 = BP, $a1 = RP, $a2 = K -> $v0 in {0, 1}
+    or   $t0, $a0, $a1
+    nor  $t0, $t0, $zero          # $t0 = E (all 32 empty dark squares)
+    # Parallel NW double-step capture across all 32 squares simultaneously:
+    li   $t8, 0x0F0F0F00          # even-row mask (shift -4)
+    li   $t9, 0xE0E0E0E0          # odd-row non-edge mask (shift -5)
+    and  $t1, $a0, $t8
+    srl  $t1, $t1, 4
+    and  $t2, $a0, $t9
+    srl  $t2, $t2, 5
+    or   $t1, $t1, $t2
+    and  $t1, $t1, $a1            # $t1 = all Red enemies jumpable NW in 1 step
+    and  $t2, $t1, $t8            # shift jumped enemies NW again (complementary parity!)
+    srl  $t2, $t2, 4
+    and  $t3, $t1, $t9
+    srl  $t3, $t3, 5
+    or   $t2, $t2, $t3
+    and  $v0, $t2, $t0            # non-zero iff >= 1 NW landing square is empty!
+    # ... identical 12-instruction blocks for NE (0xF0F0F0F0/0x07070700),
+    #     and for kings ($a0 & $a2) along SW and SE ...
+    sltu $v0, $zero, $v0          # normalize bitmask -> boolean {0, 1}
+    jr   $ra
+\end{lstlisting}

@@ -1,0 +1,144 @@
+\section{User Guide, Execution Instructions, and Live Demo Script}
+\label{sec:guide}
+
+\subsection{Running the Game on MARS 4.5}
+\label{sec:run_mars}
+Ensure all four assembly files (\code{defs.asm}, \code{main.asm}, \code{board\_io.asm}, \code{rules.asm}) remain together inside \code{src/} and Java (JDK/JRE 8+) is installed.
+
+\textbf{Terminal / CLI Mode (Recommended for Fast Play and Testing):}\par\nopagebreak
+\begin{lstlisting}[style=termstyle]
+# Default interactive mode (framed pretty board with square numbers & rule banner)
+java -jar Mars45.jar nc src/main.asm
+
+# Classic compact mode (exact Assignment Section 2 format for transcript comparison)
+java -jar Mars45.jar nc src/main.asm pa classic
+\end{lstlisting}
+
+\paragraph{MARS GUI Mode and Bitmap Display Setup:}
+\begin{enumerate}
+    \item Launch \code{java -jar Mars45.jar} and open \code{src/main.asm}.
+    \item In \textbf{Settings}, ensure \emph{Assemble all files in directory} is \textbf{OFF} (avoiding duplicate-label errors from \code{.include}) and \emph{Delayed branching} is \textbf{OFF}.
+    \item \emph{(Optional — Graphical Bitmap Display):} Open \textbf{Tools $\rightarrow$ Bitmap Display} and configure:
+    \begin{itemize}
+        \item \textbf{Unit Width in Pixels:} \code{8} \qquad \textbf{Unit Height in Pixels:} \code{8}
+        \item \textbf{Display Width in Pixels:} \code{512} \qquad \textbf{Display Height in Pixels:} \code{512}
+        \item \textbf{Base address for display:} \code{0x10040000 (heap)}
+    \end{itemize}
+    Click \textbf{Connect to MIPS}, press \textbf{F3} (Assemble) then \textbf{F5} (Run), enter \code{0} $\to$ \code{8} $\to$ \code{0} in \textbf{Run I/O} to enable live Bitmap rendering alongside terminal control.
+\end{enumerate}
+
+\begin{minipage}{\textwidth}
+\textbf{Running Automated Test Suites and Tkinter Replay Viewer:}\par\nopagebreak
+\begin{lstlisting}[style=termstyle]
+# Replay a single benchmark fixture directly on MARS 4.5 (PowerShell)
+Get-Content tests/test_001/input.txt | java -jar Mars45.jar nc src/main.asm pa classic
+
+# Run all 47 MIPS automated tests (requires Java + pytest)
+python -m pytest -v tests/test_mips.py tests/test_rules.py tests/test_features.py
+
+# Include the 5 C++ reference cross-checks (requires g++)
+python -m pytest -v tests/
+
+# Launch the interactive Tkinter replay visualizer for tests/test_001..005
+python main.py
+\end{lstlisting}
+\end{minipage}
+
+\subsection{Live Demonstration Scenarios (Verbatim MARS 4.5 Outputs)}
+\label{sec:demo_script}
+For live project defense, three structured walkthroughs demonstrate every mandatory and extra requirement in under five minutes. Every transcript snippet below was captured verbatim from \code{Mars45.jar}.
+
+\paragraph{Demo 1 — Startup Pretty Board and Interactive Settings Menu.}
+Launching \code{java -jar Mars45.jar nc src/main.asm} displays the side-by-side board and rule banner immediately; typing \code{0} opens the 14-item menu:
+
+\begin{lstlisting}[style=termstyle]
+  CHECKERS
+  Kings  Standard    |    First capture  Optional
+  Black (b, B = king): 12    Red (r, R = king): 12
+  POSITION                             PLAYABLE SQUARES
+  +---+---+---+---+---+---+---+---+    +---+---+---+---+---+---+---+---+
+  |   | r |   | r |   | r |   | r |    |   | 1 |   | 2 |   | 3 |   | 4 |
+  +---+---+---+---+---+---+---+---+    +---+---+---+---+---+---+---+---+
+  | r |   | r |   | r |   | r |   |    | 5 |   | 6 |   | 7 |   | 8 |   |
+  ...
+  | b |   | b |   | b |   | b |   |    |29 |   |30 |   |31 |   |32 |   |
+  +---+---+---+---+---+---+---+---+    +---+---+---+---+---+---+---+---+
+  .  Empty square     |     0  Settings (at the starting-square prompt)
+Black's turn.
+Enter starting square: 0
+
+=============== MENU ===============
+Settings (type the number to switch ON/OFF):
+  1. Pretty board (frame + square numbers) ... ON
+  2. Rotate Red with standard numbering ..... OFF
+  3. Red's own numbers (also rotates Red) ... OFF
+  4. Detailed error messages ................. OFF
+  5. Move hints (list legal moves) ........... OFF
+  6. Forced capture rule ..................... OFF
+  7. Flying kings variant .................... OFF
+  8. Bitmap Display (setup: see README) ...... OFF
+  9. Ask to play again when the game ends .... OFF
+Actions:
+ 10. Show move history           11. Offer / accept a draw
+ 12. Restart the game            13. Quit
+ 14. Turn on all quality-of-life options (1-5, 9)   0. Back to the game
+\end{lstlisting}
+
+\paragraph{Demo 2 — Red's Rotated Perspective and Player-Relative Numbering.}
+Toggle option \code{3} ON (\code{0} $\to$ \code{3} $\to$ \code{0}). After Black plays \code{21-17}, the board flips $180^\circ$ with \code{[Red's view]} and square~\code{29} at Red's bottom-left. Red types \code{24-20} using the numbers displayed on screen, which \code{view\_square} maps internally to canonical \code{9-13} (verified when Black's view returns showing \code{r} at square~\code{13}).
+
+\paragraph{Demo 3 — Forced Capture, Flying Kings, Hints, Detailed Error, and Move History.}
+Table~\ref{tab:demo_steps} details the five-stage live sequence (matching \code{README.md} and verified by \code{test\_flying\_king\_capture\_is\_required\_and\_hinted}), followed by the verbatim MARS 4.5 execution trace.
+
+\begin{table}[H]
+\centering
+\caption{Five-stage live demonstration script for advanced rulesets and QoL features.}
+\label{tab:demo_steps}
+\renewcommand{\arraystretch}{1.2}
+\rowcolors{2}{rowshade}{white}
+\footnotesize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.5cm} >{\raggedright\arraybackslash}p{4.6cm} >{\raggedright\arraybackslash}X}
+\toprule
+\rowcolor{hcmutlight}
+Stage & Input Sequence (one integer per line) & Expected Live Observation \\
+\midrule
+1. Opening setup & \code{23-19 9-14 27-23 6-9 32-27 2-6 23-18} & Opens diagonal \code{14--23--32} leading to Red's turn. \\
+2. Chain \& Promotion & Red \code{14x23 23x32}, then Black \code{22-18} & Red double-jumps, crowns to \code{R} at \code{32}; Black enters diagonal \code{32-27-23-18-14} three squares away. \\
+3. Enable Rules \& QoL & \code{0 $\to$ 4 $\to$ 5 $\to$ 6 $\to$ 7 $\to$ 0} & Header updates to \code{Kings Flying | First capture Required}; hints display \code{Pieces that can move: 32}. \\
+4. Forced Capture Block & Red attempts non-capture \code{32-27} & Rejected with \code{ERR\_MUST\_CAPTURE}; Red retains turn and landing hint remains \code{14}. \\
+5. Flying Capture \& Log & Red executes \code{32x14}, then \code{0 $\to$ 10} & Red king jumps 3 squares over \code{18} to \code{14}; History prints full match in standard notation. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{lstlisting}[style=termstyle]
+  CHECKERS
+  Kings  Flying    |    First capture  Required
+  Black (b, B = king): 10    Red (r, R = king): 12
+  ... (Red King R at square 32; Black pawn b at square 18) ...
+Red's turn.
+  A capture is available: you must capture.
+  Pieces that can move: 32
+Enter starting square: 32
+  Possible landing squares: 14
+Enter landing square: 27
+Not a valid move! A capture is available, so you must capture (forced capture rule). Try again.
+Enter starting square: 32
+  Possible landing squares: 14
+Enter landing square: 14
+Captured Black's piece.
+...
+Move history (standard notation, Black's numbering):
+  1. Black 23-19    2. Red 9-14     3. Black 27-23    4. Red 6-9
+  5. Black 32-27    6. Red 2-6      7. Black 23-18    8. Red 14x23 23x32
+  9. Black 22-18   10. Red 32x14
+\end{lstlisting}
+
+\paragraph{Oral-Defense Assembly Walkthrough (\code{test\_001} Chain \code{11x2 2x9 9x18}).}
+When demonstrating low-level MIPS mastery to the instructor, trace the promotion chain in \code{test\_001}:
+\begin{enumerate}
+    \item \code{sq\_to\_rc} translates \code{11} $\to (2,5)$ and \code{2} $\to (0,3)$ using \code{srl}/\code{andi}/\code{xori}.
+    \item \code{play\_turn} calls \code{validate\_move(\$a0=11, \$a1=2, \$a2=0)}, returning \code{\$v0 = CAPTURE (2)}.
+    \item \code{do\_move(11, 2)} moves \code{'b'} to index~3, clears intermediate index~12 (square~7) via diagonal stride $-9$, and detects $r_d = 0$ to write \code{KING\_BLACK ('B')} before returning.
+    \item \code{play\_turn\_captured} calls \code{can\_capture\_from(2, 0)}, which reads \code{'B'} at square~2, confirms backward capture \code{2x9} (over square~6) is legal, locks \code{\$s1 = 2}, and loops through \code{validate\_chain} until \code{9x18} ends the chain.
+\end{enumerate}

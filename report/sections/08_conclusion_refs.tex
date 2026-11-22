@@ -1,0 +1,80 @@
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+
+\subsection{Conclusion}
+This project delivered a complete, modular, and rigorously audited implementation of English Checkers in \textbf{MARS 4.5 MIPS32 Assembly} for Computer Architecture Lab (CO2008). Across 1,982 lines of cleanly structured assembly (1,879 assembled instructions in \code{.text}, 7,168\,B in \code{.data}, and a strictly bounded 104\,B call stack), the engine fulfills 100\% of the bare-minimum specification and integrates ten substantive Quality-of-Life and Advanced Ruleset extensions---including dual-panel framed rendering, $180^\circ$ Red perspective rotation, involutive player-relative numbering ($33 - s$), 11-code diagnostic reporting, move hints, standard-notation history, mutual draw negotiation, in-session restart/replay, Forced First Capture, Flying Kings, and a 64$\times$64 memory-mapped MARS Bitmap Display renderer at \code{0x10040000}.
+
+Live execution on MARS 4.5 verified \textbf{47/47 deterministic \code{pytest} cases} and \textbf{4,000/4,000 randomized differential fuzzing queries} with zero exceptions and zero mismatches, while static binary decoding confirmed zero MIPS ABI violations. Connecting the implementation to contemporary computer architecture and board-game engine literature \cite{schaeffer2007,patterson2020,hennessy2019,hur2021} further yielded empirical prototypes proving \textbf{2.17$\times$--2.88$\times$} speedup for ray-cached hints, \textbf{5.65$\times$--8.47$\times$} speedup for dirty-tile Bitmap Display redraws, and \textbf{60.4$\times$--113.0$\times$} speedup for 32-bit Chinook-style SWAR bitboard capture detection.
+
+\subsection{Future Work}
+Building on the clean separation between \code{board\_io.asm}, \code{rules.asm}, and \code{main.asm}, four concrete engineering directions remain open:
+\begin{enumerate}
+    \item \textbf{Upstream integration of verified prototypes:} Merge Prototype~P1 (ray-cached hints), Prototype~P2 (dirty-tile Bitmap Display with load-delay scheduling), and the minor doc fixes F1--F2 into the mainline repository.
+    \item \textbf{Hybrid Mailbox + 32-Bit SWAR Bitboard AI Engine:} Pair the existing mailbox I/O layer with a 3-register SWAR bitboard core (\code{BP}, \code{RP}, \code{K}) powering an iterative depth-limited alpha-beta / proof-number search opponent directly in MIPS32 \cite{schaeffer2007,fierz_cake}.
+    \item \textbf{10$\times$10 International Draughts mode:} Parameterize board width $N \in \{8, 10\}$ with Kogge-Stone flying-king ray fills and mandatory maximum-capture selection \cite{letouzey_scan}.
+    \item \textbf{Hardware MMIO Keyboard/Display Integration:} Connect MARS's Keyboard and Display MMIO Simulator (\code{0xFFFF0000}) for real-time arrow-key cursor navigation directly on the Bitmap Display canvas.
+\end{enumerate}
+
+% =========================================================
+% REFERENCES
+% =========================================================
+
+\begin{thebibliography}{10}
+\small
+\bibitem{schaeffer2007}
+J.~Schaeffer, N.~Burch, Y.~Bj\"{o}rnsson, A.~Kishimoto, M.~M\"{u}ller, R.~Lake, P.~Lu, and S.~Sutphen,
+``Checkers Is Solved,''
+\emph{Science}, vol.~317, no.~5844, pp.~1518--1522, Sep.~2007, doi:~\code{10.1126/science.1144079}.
+
+\bibitem{samuel1959}
+A.~L.~Samuel,
+``Some Studies in Machine Learning Using the Game of Checkers,''
+\emph{IBM Journal of Research and Development}, vol.~3, no.~3, pp.~210--229, Jul.~1959, doi:~\code{10.1147/rd.33.0210}.
+
+\bibitem{vollmar2006}
+K.~R.~Vollmar and P.~Sanderson,
+``MARS: An Education-Oriented MIPS Assembly Language Simulator,''
+in \emph{Proc.\ 37th ACM SIGCSE Technical Symposium on Computer Science Education (SIGCSE '06)},
+Houston, TX, USA, Mar.~2006, pp.~239--243, doi:~\code{10.1145/1121341.1121415}.
+
+\bibitem{patterson2020}
+D.~A.~Patterson and J.~L.~Hennessy,
+\emph{Computer Organization and Design: The Hardware/Software Interface --- MIPS Edition},
+6th~ed.\ San Francisco, CA, USA: Morgan Kaufmann, 2020.
+
+\bibitem{hennessy2019}
+J.~L.~Hennessy and D.~A.~Patterson,
+\emph{Computer Architecture: A Quantitative Approach},
+6th~ed.\ Cambridge, MA, USA: Morgan Kaufmann, 2019.
+
+\bibitem{mckeeman1998}
+W.~M.~McKeeman,
+``Differential Testing for Software,''
+\emph{Digital Technical Journal}, vol.~10, no.~1, pp.~100--107, 1998.
+
+\bibitem{hur2021}
+J.~Hur, S.~Song, D.~Kwon, E.~Baek, J.~Kim, and B.~Lee,
+``DifuzzRTL: Differential Fuzz Testing to Find CPU Bugs,''
+in \emph{Proc.\ 42nd IEEE Symposium on Security and Privacy (S\&P)},
+San Francisco, CA, USA, May~2021, pp.~1286--1303, doi:~\code{10.1109/SP40001.2021.00028}.
+
+\bibitem{fierz_cake}
+M.~Fierz,
+``Cake --- Checkers Engine and CheckerBoard Architecture,''
+Technical Reference \& Open-Source Implementation, \url{https://fierz.ch/checkers.htm}, accessed Nov.~2026.
+
+\bibitem{letouzey_scan}
+F.~Letouzey,
+``Scan --- Bitboard-Based International Draughts Engine,''
+Open-Source Technical Documentation (Bit-Parallel Sliding Ray Generation), accessed Nov.~2026.
+
+\bibitem{rapid_draughts}
+loks0n,
+``rapid-draughts: High-Performance Bitboard English Draughts Engine,''
+GitHub Repository, \url{https://github.com/loks0n/rapid-draughts}, accessed Nov.~2026.
+
+\bibitem{py_draughts}
+miskibin,
+``py-draughts: Multi-Variant Bitboard Draughts Move Generator,''
+GitHub Repository, \url{https://github.com/miskibin/py-draughts}, accessed Nov.~2026.
+\end{thebibliography}
