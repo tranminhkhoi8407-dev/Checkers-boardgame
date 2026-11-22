@@ -7,22 +7,22 @@ Checkers (known internationally as \emph{English draughts}) is one of the founda
 Building a non-trivial interactive game at the instruction-set level directly reinforces four core themes of modern computer organization \cite{patterson2020,hennessy2019}:
 \begin{enumerate}
     \item \textbf{Low-level data modeling \& cache awareness:} Structuring the $8\times 8$ board (fitting inside a single 64-byte L1 cache line), move history, and 16\,KiB memory-mapped framebuffer (\code{0x10040000}) directly in flat MIPS32 virtual memory.
-    \item \textbf{Bitwise arithmetic \& SWAR principles:} Replacing divisions and modulo operations with bit shifts (\code{sll}, \code{srl}), masks (\code{andi}), and involutive XOR/subtraction transforms for coordinate encoding, $180^\circ$ rotation, and pixel addressing---and rigorously comparing this design against state-of-the-art 32-bit SWAR bitboards \cite{schaeffer2007,fierz_cake,rapid_draughts}.
-    \item \textbf{MIPS32 ABI \& pipeline discipline:} Organizing 1,982 assembly lines into 42 cleanly decoupled procedures across four source files with 100\% symmetric stack frames, zero ABI violations, and explicit analysis of 5-stage pipeline forwarding and load-use hazards.
-    \item \textbf{Rigorous verification:} Pairing a crash-proof \code{syscall 14} buffered stdin parser with a multi-tier automated \code{pytest} harness and a 4,000-query \emph{differential property-based fuzzer} \cite{mckeeman1998,hur2021} executing live on \code{Mars45.jar}.
+    \item \textbf{Bitwise arithmetic \& Chinook SWAR bitboards:} Replacing divisions and modulo operations with bit shifts (\code{sll}, \code{srl}), masks (\code{andi}), and involutive transforms---and deploying a full \textbf{hybrid 64-byte mailbox + 32-bit Chinook SWAR bitboard engine} \cite{schaeffer2007,warren2012,rapid_draughts} directly in production MIPS32 for mobility, forced capture, bidirectional move hints, and branchless SWAR \code{popcount}.
+    \item \textbf{MIPS32 ABI \& pipeline discipline:} Organizing 2,451 assembly lines into 48 cleanly decoupled procedures (23 leaf, 25 non-leaf) across four source files with 100\% symmetric stack frames, zero ABI violations, and zero-stall load-use delay scheduling inside hot pixel and bitboard-packing loops.
+    \item \textbf{Rigorous multi-tier verification:} Pairing a crash-proof \code{syscall 14} buffered stdin parser with \textbf{54 automated \code{pytest} tests}---including live MARS 4.5 \textbf{WCDF \code{Perft}(1--3)} tree verification (\code{7 / 49 / 302})---and a \textbf{4,000-query differential property-based fuzzer} \cite{mckeeman1998,hur2021}.
 \end{enumerate}
 
 \subsection{Delivered Scope Summary}
 The CO2008 specification distinguishes a \emph{bare-minimum product} (Sections~1--2, capped at 9/10 marks or 8/10 for the Honors program) from \emph{Quality-of-Life (QoL)} and \emph{Advanced Ruleset} extensions (Section~3). Our submission fulfills 100\% of the core requirements and adds ten substantial runtime-configurable extensions via an interactive menu (entering \code{0} at the starting-square prompt), while preserving bit-exact compatibility with automated classic transcript fixtures through the MARS program argument \code{pa classic}.
 
-\begin{keybox}{\faCheckCircle\hspace{0.45em}Executive Summary of Audited Deliverables \& Research Contributions}
+\begin{keybox}{\faCheckCircle\hspace{0.45em}Executive Summary of Audited Deliverables \& Production v2.0 Upgrades}
 \footnotesize
 \begin{itemize}[topsep=1pt,itemsep=1.5pt]
-    \item \textbf{Modular MIPS32 Engine:} 1,982 lines across 4 files (\code{defs.asm}, \code{main.asm}, \code{board\_io.asm}, \code{rules.asm}), assembling to \textbf{1,879 basic MIPS32 instructions} (7,516\,B \code{.text}), \textbf{7,168\,B} \code{.data}, and a strictly bounded \textbf{104\,B} call stack with \textbf{0 ABI/liveness violations}.
+    \item \textbf{Modular Hybrid MIPS32 Engine (v2.0):} 2,451 lines across 4 files (\code{defs.asm}, \code{main.asm}, \code{board\_io.asm}, \code{rules.asm}), assembling to \textbf{2,283 basic MIPS32 instructions} (9,132\,B \code{.text}), \textbf{8,192\,B} \code{.data}, and a strictly bounded \textbf{116\,B} call stack with \textbf{0 ABI/liveness violations}.
     \item \textbf{Full English Rules + Promotion Chain:} 12 pieces/side, Black moves first, instant promotion on rows 0/7, immediate backward chain-capture upon promotion (Spec Fig.~8), and win detection by both \emph{elimination} and \emph{complete blockade} (Spec Fig.~9).
-    \item \textbf{Quality-of-Life \& Advanced Rules (14 Menu Items):} Dual-panel framed board with piece counters and rule banner; $180^\circ$ Red rotation; player-relative numbering ($s' = 33 - s$); 11-code diagnostic errors; legal move hints; standard-notation history (1,000 steps); two-phase mutual draw protocol; restart \& replay; \textbf{MARS Bitmap Display} (\code{0x10040000}); \textbf{Forced First Capture}; and \textbf{Flying Kings}.
-    \item \textbf{Empirical Verification (100\% Live on MARS 4.5):} \textbf{47/47 automated \code{pytest} tests passed} (54.28\,s) plus \textbf{4,000/4,000 differential fuzzing queries passed} across 500 randomized boards (0 mismatches), supported by an executable C++ reference (\code{src/main.cpp}) and a Tkinter replay viewer (\code{main.py}).
-    \item \textbf{Microarchitectural Deep Audit \& Measured Optimizations:} Complete binary opcode/hazard decoding (33 load-use hazards, 636 EX$\to$EX forwarding pairs), L1 cache locality analysis, and three live-benchmarked optimization prototypes achieving \textbf{2.17$\times$--2.88$\times$} (Ray-Cached Hints), \textbf{5.65$\times$--8.47$\times$} (Dirty-Tile Bitmap), and \textbf{60.4$\times$--113.0$\times$} (32-bit Chinook SWAR Bitboard).
+    \item \textbf{Quality-of-Life \& Advanced Rules (14 Menu Items):} Dual-panel framed board with SWAR \code{popcount} piece counters and rule banner; $180^\circ$ Red rotation; player-relative numbering ($s' = 33 - s$); 11-code diagnostic errors; SWAR-accelerated legal move hints; standard-notation history (1,000 steps); two-phase mutual draw protocol; restart \& replay; \textbf{Dirty-Tile MARS Bitmap Display} (\code{0x10040000}); \textbf{Forced First Capture}; and \textbf{Flying Kings}.
+    \item \textbf{Empirical Verification (100\% Live on MARS 4.5):} \textbf{54/54 automated \code{pytest} tests passed}---including live MARS \textbf{WCDF \code{Perft}(1--3) = 7 / 49 / 302} and Classic \code{Perft}(1--3) = 7 / 49 / 379---plus \textbf{4,000/4,000 differential fuzzing queries} (500 random boards) and \textbf{10,000/10,000 SWAR Duality checks} with \textbf{0 mismatches}.
+    \item \textbf{Deployed Production Speedups (v1.0 $\to$ v2.0 on Live MARS 4.5):} \textbf{5.17$\times$} full-game speedup on Pretty+Hints (\textbf{23.79$\times$} net hint engine via Chinook Bidirectional SWAR Duality), \textbf{15.19$\times$} on Classic+Bitmap (\textbf{42.59$\times$} single dirty move via Dirty-Tile + LICM + 8-way unrolled solid tiles + 0-stall scheduling), \textbf{8.40$\times$} on \code{side\_has\_capture}, and \textbf{$-12.8\%$ to $-20.7\%$} across all five classic fixtures.
 \end{itemize}
 \end{keybox}
 
@@ -49,9 +49,9 @@ Move legality (\code{classify\_move}, \code{validate\_move}), piece ownership, d
 Shared constants \& macros, board state \& bitwise transforms, classic/pretty/rotated/Bitmap Display renderers, fault-tolerant \code{syscall 14} input parser, main game loop, interactive menu (1--14), draw/history/replay features, C++ reference, isolated unit \& feature test suites. &
 \code{src/defs.asm}, \code{src/board\_io.asm}, \code{src/main.asm}, \code{src/main.cpp}, \code{rules\_driver.asm}, \code{test\_rules.py}, \code{test\_features.py} \\
 
-\vn{Mạc Phúc Khang} & Deep Audit \& Report &
-End-to-end static \& dynamic audit (MIPS32 binary decoding, ABI/stack/pipeline hazard audit, 4,000-query differential fuzzing), SOTA bitboard \& optimization prototype benchmarking (live MARS 4.5 \code{ic} \& Bitmap dumps), LaTeX technical report, vector diagrams, and oral-defense demo script. &
-LaTeX Report (\code{main.tex}), Audit Findings, SWAR/Dirty-Tile Benchmarks \& Demo Guide \\
+\vn{Mạc Phúc Khang} & Deep Audit, Perf \& Report &
+End-to-end static \& dynamic audit (MIPS32 binary decoding, ABI/stack/pipeline hazard audit, 4,000-query differential fuzzing, live MARS WCDF \code{Perft}(1--3)), deployed v2.0 optimizations (32-bit Chinook SWAR bitboards, SWAR \code{popcount}, Dirty-Tile LICM Bitmap), full English repo standardization, LaTeX technical report, vector diagrams, and oral-defense guide. &
+\code{test\_advanced\_verification.py}, \code{report/audit/*.py}, \code{report/main.tex}, \code{main.pdf}, Overleaf ZIP \\
 \bottomrule
 \end{tabularx}
 \end{table}

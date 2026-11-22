@@ -1,21 +1,35 @@
-"""Differential property-based fuzzer (4,000 queries) and live MARS 4.5 optimization benchmarks.
+"""Differential property-based fuzzer (4,000 queries), SWAR Duality verifier,
+and live MARS 4.5 v2.0 production benchmark suite.
 
-Verifies src/rules.asm against an independent Python oracle across 500 randomized
-boards (English, Forced Capture, Flying Kings), verifies 10,000 SWAR bitboard
-positions, and benchmarks three isolated MIPS32 optimization prototypes in a
-temporary directory without modifying src/.
+Verifies the upgraded v2.0 MIPS32 engine (src/rules.asm, src/board_io.asm,
+src/main.asm) against an independent Python oracle across 500 randomized boards
+(English, Forced Capture, Flying Kings), verifies 10,000 SWAR bitboard /
+Chinook Duality / popcount positions, and benchmarks live v2.0 instruction
+counts against the recorded v1.0 pre-optimization baseline.
 """
 import pathlib
 import random
 import shutil
 import subprocess
-import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MARS = ROOT / "Mars45.jar"
 DRIVER_ASM = ROOT / "tests" / "unit" / "rules_driver.asm"
 MAIN_ASM = ROOT / "src" / "main.asm"
 JAVA = shutil.which("java") or "java"
+
+# Recorded v1.0 baseline MARS 4.5 instruction counts (commit 5605647, prior to SWAR & Dirty-Tile upgrades)
+V1_BASELINE_IC = {
+    "test_001_classic": 106306,
+    "test_002_classic": 98424,
+    "test_003_classic": 106734,
+    "test_004_classic": 103767,
+    "test_005_classic": 93648,
+    "test_001_pretty": 302523,
+    "test_001_pretty_hints": 1512982,
+    "test_001_classic_bitmap": 2812330,
+    "test_001_pretty_bitmap": 3014063,
+}
 
 
 def sq_rc(s):
@@ -190,16 +204,31 @@ def run_differential_fuzzer(n_boards=500):
     assert res.returncode == 0, res.stderr.decode(errors="replace")
     actual = res.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n").rstrip("\n").splitlines()
     mismatches = sum(1 for a, b in zip(actual, expected) if a != b)
-    print(f"=== DIFFERENTIAL FUZZER: {n_boards} boards, {len(expected)} queries ===")
+    print(f"=== DIFFERENTIAL FUZZER (v2.0 production): {n_boards} boards, {len(expected)} queries ===")
     print(f"Exact matches: {len(actual) - mismatches}/{len(expected)} | Mismatches: {mismatches}")
     assert len(actual) == len(expected) and mismatches == 0
 
 
 def verify_swar_bitboard_math():
-    def step_nw(x): return ((x & 0x0F0F0F00) >> 4) | ((x & 0xE0E0E0E0) >> 5)
-    def step_ne(x): return ((x & 0xF0F0F0F0) >> 4) | ((x & 0x07070700) >> 3)
-    def step_sw(x): return ((x & 0x0F0F0F0F) << 4) | ((x & 0x00E0E0E0) << 3)
-    def step_se(x): return ((x & 0x00F0F0F0) << 4) | ((x & 0x07070707) << 5)
+    def up_steps(x): return ((x >> 4) | ((x & 0xE0E0E0E0) >> 5) | ((x & 0x07070700) >> 3)) & 0xFFFFFFFF
+    def dn_steps(x): return (((x << 4) | ((x & 0x00E0E0E0) << 3) | ((x & 0x07070707) << 5)) & 0xFFFFFFFF)
+    def up_caps(src, opp, dst):
+        nw1 = (((src >> 4) & opp & 0x00E0E0E0) >> 5)
+        nw2 = ((((src & 0xE0E0E0E0) >> 5) & opp) >> 4)
+        ne1 = (((src >> 4) & opp & 0x07070700) >> 3)
+        ne2 = ((((src & 0x07070700) >> 3) & opp) >> 4)
+        return (nw1 | nw2 | ne1 | ne2) & dst
+    def dn_caps(src, opp, dst):
+        sw1 = ((((src << 4) & 0xFFFFFFFF) & opp & 0x00E0E0E0) << 3) & 0xFFFFFFFF
+        sw2 = (((((src & 0x00E0E0E0) << 3) & 0xFFFFFFFF) & opp) << 4) & 0xFFFFFFFF
+        se1 = ((((src << 4) & 0xFFFFFFFF) & opp & 0x07070707) << 5) & 0xFFFFFFFF
+        se2 = (((((src & 0x07070707) << 5) & 0xFFFFFFFF) & opp) << 4) & 0xFFFFFFFF
+        return (sw1 | sw2 | se1 | se2) & dst
+    def popcount(x):
+        x = (x - ((x >> 1) & 0x55555555)) & 0xFFFFFFFF
+        x = ((x & 0x33333333) + ((x >> 2) & 0x33333333)) & 0xFFFFFFFF
+        x = ((x + (x >> 4)) & 0x0F0F0F0F) & 0xFFFFFFFF
+        return (((x * 0x01010101) & 0xFFFFFFFF) >> 24)
 
     rng = random.Random(42)
     for _ in range(10000):
@@ -208,12 +237,12 @@ def verify_swar_bitboard_math():
         k = rng.getrandbits(32) & (bp | rp)
         e = (~(bp | rp)) & 0xFFFFFFFF
         bk = bp & k
-        swar = 1 if (
-            (step_nw(step_nw(bp) & rp) & e)
-            | (step_ne(step_ne(bp) & rp) & e)
-            | (step_sw(step_sw(bk) & rp) & e)
-            | (step_se(step_se(bk) & rp) & e)
-        ) else 0
+        assert popcount(bp) == bin(bp).count("1") and popcount(rp) == bin(rp).count("1")
+        swar_cap = 1 if (up_caps(bp, rp, e) | dn_caps(bk, rp, e)) else 0
+        swar_mov = 1 if (((up_steps(bp) | dn_steps(bk)) & e) or swar_cap) else 0
+        # Verify Chinook Duality for Black capture source pieces
+        dual_cap_src = dn_caps(e, rp, bp) | up_caps(e, rp, bk)
+        assert bool(dual_cap_src) == bool(swar_cap)
         board = [["_" if (r + c) % 2 == 0 else "0" for c in range(8)] for r in range(8)]
         for b in range(32):
             r, c = sq_rc(b + 1)
@@ -221,195 +250,32 @@ def verify_swar_bitboard_math():
                 board[r][c] = "B" if ((k >> b) & 1) else "b"
             elif (rp >> b) & 1:
                 board[r][c] = "R" if ((k >> b) & 1) else "r"
-        assert swar == oracle_side_cap(board, 0, False)
-    print("=== SWAR 32-BIT BITBOARD MATH VERIFICATION: 10,000 / 10,000 PASS ===")
+        assert swar_cap == oracle_side_cap(board, 0, False)
+        assert swar_mov == oracle_has_move(board, 0, False) == oracle_has_move(board, 0, True)
+    print("=== SWAR BITBOARD + DUALITY + POPCOUNT + MOBILITY EQUIVALENCE: 10,000 / 10,000 PASS ===")
 
 
-def run_optimization_benchmarks():
+def run_production_benchmarks():
+    print("=== LIVE MARS 4.5 BENCHMARKS: v1.0 BASELINE vs. v2.0 PRODUCTION ===")
     t1 = (ROOT / "tests" / "test_001" / "input.txt").read_text(encoding="utf-8")
-    with tempfile.TemporaryDirectory() as td:
-        tmp = pathlib.Path(td)
-        for fn in ("defs.asm", "main.asm", "board_io.asm", "rules.asm"):
-            shutil.copy2(ROOT / "src" / fn, tmp / fn)
-
-        # Prototype 1: Ray-cached print_movable_pieces
-        main_txt = (tmp / "main.asm").read_text(encoding="utf-8").replace("\r\n", "\n")
-        marker = "print_movable_pieces:"
-        end_marker = "print_movable_show:"
-        start_idx = main_txt.index(marker)
-        end_idx = main_txt.index(end_marker)
-        opt1_body = """print_movable_pieces:
-    push($ra)
-    push($s0)
-    push($s1)
-    push($s2)
-    push($s3)
-    move $s0, $a0
-    li   $s3, 0
-    lw   $t0, opt_forced
-    beqz $t0, print_movable_list
-    jal  side_has_capture
-    move $s3, $v0
-    beqz $s3, print_movable_list
-    print_str(str_must_cap)
-print_movable_list:
-    print_str(str_hint_pieces)
-    li   $s1, 1
-print_movable_loop:
-    move $a0, $s1
-    move $a1, $s0
-    jal  view_square
-    move $s2, $v0
-    move $a0, $s2
-    move $a1, $s0
-    jal  check_start
-    bnez $v0, print_movable_next
-    move $a0, $s2
-    move $a1, $s0
-    jal  can_capture_from
-    bnez $v0, print_movable_show
-    bnez $s3, print_movable_next
-    move $a0, $s2
-    move $a1, $s0
-    jal  can_step_from
-    bnez $v0, print_movable_show
-    j    print_movable_next
-"""
-        opt1_main = tmp / "main_opt_hints.asm"
-        opt1_main.write_text(main_txt[:start_idx] + opt1_body + main_txt[end_idx:], encoding="utf-8")
-        base_h, base_out = run_ic(MAIN_ASM, "0\n5\n0\n" + t1)
-        opt_h, opt_out = run_ic(opt1_main, "0\n5\n0\n" + t1)
-        assert base_out == opt_out
-        print(f"=== P1 RAY-CACHED HINTS (test_001): {base_h:,} -> {opt_h:,} ({base_h / opt_h:.2f}x) ===")
-
-        # Prototype 2: Dirty-tile incremental Bitmap Display
-        opt2 = tmp / "dirty"
-        opt2.mkdir()
-        for fn in ("defs.asm", "main.asm", "rules.asm"):
-            shutil.copy2(ROOT / "src" / fn, opt2 / fn)
-        bio_txt = (ROOT / "src" / "board_io.asm").read_text(encoding="utf-8").replace("\r\n", "\n")
-        dirty_patch = """
-.data
-bmp_valid:      .word 0
-bmp_last_rot:   .word -1
-bmp_cache:      .space 64
-.text
-draw_bitmap_dirty:
-    push($s0)
-    push($s1)
-    push($s2)
-    push($s3)
-    push($s4)
-    push($s5)
-    push($s6)
-    push($s7)
-    move $s7, $a0
-    lw   $t8, bmp_valid
-    lw   $t9, bmp_last_rot
-    bne  $t9, $s7, dbd_force_all
-    j    dbd_start
-dbd_force_all:
-    li   $t8, 0
-dbd_start:
-    li   $s0, 0
-dbd_row:
-    li   $s1, 0
-dbd_col:
-    sll  $t0, $s0, 3
-    add  $t0, $t0, $s1
-    move $t7, $t0
-    beqz $s7, dbd_cell
-    li   $t1, 63
-    sub  $t0, $t1, $t0
-dbd_cell:
-    lbu  $t1, board($t0)
-    beqz $t8, dbd_draw
-    lbu  $t6, bmp_cache($t7)
-    beq  $t1, $t6, dbd_skip
-dbd_draw:
-    sb   $t1, bmp_cache($t7)
-    li   $s2, COLOR_DARK
-    bne  $t1, UNUSED, dbd_piece
-    li   $s2, COLOR_LIGHT
-dbd_piece:
-    li   $s3, 0
-    li   $s4, 0
-    beq  $t1, PAWN_BLACK, dbd_black
-    beq  $t1, KING_BLACK, dbd_bking
-    beq  $t1, PAWN_RED, dbd_red
-    beq  $t1, KING_RED, dbd_rking
-    j    dbd_units
-dbd_bking:
-    li   $s4, 1
-dbd_black:
-    li   $s3, COLOR_BLACK
-    j    dbd_units
-dbd_rking:
-    li   $s4, 1
-dbd_red:
-    li   $s3, COLOR_RED
-dbd_units:
-    li   $s5, 0
-dbd_y:
-    li   $s6, 0
-dbd_x:
-    move $t2, $s2
-    beqz $s3, dbd_put
-    sll  $t3, $s5, 3
-    add  $t3, $t3, $s6
-    lbu  $t3, piece_mask($t3)
-    beqz $t3, dbd_put
-    move $t2, $s3
-    bne  $t3, 2, dbd_put
-    beqz $s4, dbd_put
-    li   $t2, COLOR_KING
-dbd_put:
-    sll  $t4, $s0, 3
-    add  $t4, $t4, $s5
-    sll  $t4, $t4, 6
-    sll  $t5, $s1, 3
-    add  $t5, $t5, $s6
-    add  $t4, $t4, $t5
-    sll  $t4, $t4, 2
-    li   $t5, BITMAP_BASE
-    add  $t4, $t4, $t5
-    sw   $t2, 0($t4)
-    addi $s6, $s6, 1
-    blt  $s6, 8, dbd_x
-    addi $s5, $s5, 1
-    blt  $s5, 8, dbd_y
-dbd_skip:
-    addi $s1, $s1, 1
-    blt  $s1, 8, dbd_col
-    addi $s0, $s0, 1
-    blt  $s0, 8, dbd_row
-    li   $t0, 1
-    sw   $t0, bmp_valid
-    sw   $s7, bmp_last_rot
-    pop($s7)
-    pop($s6)
-    pop($s5)
-    pop($s4)
-    pop($s3)
-    pop($s2)
-    pop($s1)
-    pop($s0)
-    jr   $ra
-"""
-        (opt2 / "board_io.asm").write_text(
-            bio_txt.replace("jal  draw_bitmap", "jal  draw_bitmap_dirty") + dirty_patch,
-            encoding="utf-8",
-        )
-        dmp_b, dmp_o = tmp / "b.hex", tmp / "o.hex"
-        base_b, _ = run_ic(MAIN_ASM, "0\n8\n0\n" + t1,
-                           extra=["dump", "0x10040000-0x10044000", "HexText", str(dmp_b)], pa=["classic"])
-        opt_b, _ = run_ic(opt2 / "main.asm", "0\n8\n0\n" + t1,
-                          extra=["dump", "0x10040000-0x10044000", "HexText", str(dmp_o)], pa=["classic"])
-        assert dmp_b.read_text() == dmp_o.read_text()
-        print(f"=== P2 DIRTY-TILE BITMAP (test_001, 4096/4096 px exact): {base_b:,} -> {opt_b:,} ({base_b / opt_b:.2f}x) ===")
+    cases = [
+        ("test_001_classic", t1, ["classic"]),
+        ("test_002_classic", (ROOT / "tests" / "test_002" / "input.txt").read_text(encoding="utf-8"), ["classic"]),
+        ("test_003_classic", (ROOT / "tests" / "test_003" / "input.txt").read_text(encoding="utf-8"), ["classic"]),
+        ("test_004_classic", (ROOT / "tests" / "test_004" / "input.txt").read_text(encoding="utf-8"), ["classic"]),
+        ("test_005_classic", (ROOT / "tests" / "test_005" / "input.txt").read_text(encoding="utf-8"), ["classic"]),
+        ("test_001_pretty", t1, []),
+        ("test_001_pretty_hints", "0\n5\n0\n" + t1, []),
+        ("test_001_classic_bitmap", "0\n8\n0\n" + t1, ["classic"]),
+        ("test_001_pretty_bitmap", "0\n8\n0\n" + t1, []),
+    ]
+    for name, stdin_text, pa in cases:
+        v2_ic, _ = run_ic(MAIN_ASM, stdin_text, pa=pa)
+        v1_ic = V1_BASELINE_IC[name]
+        print(f"  {name:24s}: {v1_ic:10,} -> {v2_ic:10,}  ({v1_ic / v2_ic:5.2f}x, {(v2_ic - v1_ic) / v1_ic * 100:+6.1f}%)")
 
 
 if __name__ == "__main__":
     run_differential_fuzzer()
     verify_swar_bitboard_math()
-    run_optimization_benchmarks()
+    run_production_benchmarks()

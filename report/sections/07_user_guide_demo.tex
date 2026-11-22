@@ -33,8 +33,12 @@ java -jar Mars45.jar nc src/main.asm pa classic
 # Replay a single benchmark fixture directly on MARS 4.5 (PowerShell)
 Get-Content tests/test_001/input.txt | java -jar Mars45.jar nc src/main.asm pa classic
 
-# Run all 47 MIPS automated tests (requires Java + pytest)
-python -m pytest -v tests/test_mips.py tests/test_rules.py tests/test_features.py
+# Run all 54 MIPS automated tests (incl. live MARS Perft, SWAR, & Bitmap stress)
+python -m pytest -v tests/test_mips.py tests/test_rules.py tests/test_features.py tests/test_advanced_verification.py
+
+# Run standalone microarchitecture decoder, 4,000-query fuzzer, and v1-vs-v2 benchmarks
+python report/audit/microarch_audit.py
+python report/audit/fuzz_and_optimize.py
 
 # Include the 5 C++ reference cross-checks (requires g++)
 python -m pytest -v tests/

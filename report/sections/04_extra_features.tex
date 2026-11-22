@@ -55,12 +55,19 @@ Notice how \code{board\_rotated} couples options~2 and~3 cleanly: \code{opt\_rot
 
 \subsection{Hardware-Style Rendering: MARS Bitmap Display (\code{0x10040000})}
 \label{sec:bitmap}
-Beyond text UI, \code{draw\_bitmap} (\code{src/board\_io.asm}, lines~561--646) drives MARS's memory-mapped \textbf{Bitmap Display} peripheral directly in the heap segment (\code{BITMAP\_BASE = 0x10040000}). Configured with \code{Unit Width = 8}, \code{Unit Height = 8}, and \code{Display Width/Height = 512}, the display maps a $64 \times 64$ grid of 32-bit \code{0x00RRGGBB} pixel words (16,384 bytes total) onto an $8 \times 8$ tile board where each tile is an $8 \times 8$ pixel sprite.
+Beyond text UI, \code{draw\_bitmap} (\code{src/board\_io.asm}, lines~576--697) drives MARS's memory-mapped \textbf{Bitmap Display} peripheral directly in the heap segment (\code{BITMAP\_BASE = 0x10040000}). Configured with \code{Unit Width = 8}, \code{Unit Height = 8}, and \code{Display Width/Height = 512}, the display maps a $64 \times 64$ grid of 32-bit \code{0x00RRGGBB} pixel words (16,384 bytes total) onto an $8 \times 8$ tile board where each tile is an $8 \times 8$ pixel sprite.
 
-To minimize rendering overhead in the simulator, \code{draw\_bitmap} is written as a \textbf{strict leaf procedure} (zero nested \code{jal} calls inside the 4,096-pixel loop), holding all loop invariants in \code{\$s0}--\code{\$s7} and computing pixel word addresses purely via bit shifts:
-\begin{equation}
-    \text{addr}(r, c, y, x) = \texttt{0x10040000} + 4 \cdot \Big(\big((r \ll 3) + y\big) \ll 6 + (c \ll 3) + x\Big).
-\end{equation}
+In production v2.0, \code{draw\_bitmap} combines four microarchitectural optimizations while remaining a \textbf{strict leaf procedure} (zero nested \code{jal} calls):
+\begin{enumerate}
+    \item \textbf{Dirty-tile caching (\code{bmp\_cache[64]}):} Tracks the last rendered character for all 64 display tiles plus \code{bmp\_valid} and \code{bmp\_last\_rot}. Unchanged tiles skip rendering completely, reducing per-move work from 64 tiles to just 2--3 modified tiles (forcing a full 64-tile redraw on startup, game restart via \code{init\_board}, or $180^\circ$ rotation flip).
+    \item \textbf{Loop-Invariant Code Motion (LICM) + pointer stride:} Computes each dirty tile's base framebuffer pointer \code{\$t4} once per tile:
+    \begin{equation}
+        \text{tile\_base}(r, c) = \texttt{0x10040000} + 4 \cdot \big((r \ll 9) + (c \ll 3)\big),
+    \end{equation}
+    then strides $+4$\,B per pixel and $+224$\,B per tile row instead of recomputing 2D shifts 64 times per tile.
+    \item \textbf{8-way unrolled solid-tile fast path (\code{draw\_bitmap\_solid\_y}):} Empty dark squares and light squares bypass \code{piece\_mask} entirely, emitting 8 consecutive \code{sw \$s2, 0..28(\$t4)} writes per row with stride $+256$\,B/row.
+    \item \textbf{Zero-stall load-use scheduling:} Advances the sequential sprite pointer (\code{addi \$t5, \$t5, 1}) immediately inside the load delay slot of \code{lbu \$t3, 0(\$t5)} before \code{beqz \$t3, draw\_bitmap\_put}.
+\end{enumerate}
 An 8$\times$8 byte sprite mask \code{piece\_mask} encodes \code{0} (background tile), \code{1} (octagonal piece body), and \code{2} (embedded pixel-art crown rendered in gold \code{0x00F1C972} only when \code{\$s4 == 1}, i.e., for kings \code{'B'}/\code{'R'}). Figure~\ref{fig:bitmaps} presents both the $8\times 8$ sprite mask geometry and three pixel-exact live MARS 4.5 captures reconstructed directly from heap dumps (\code{dump 0x10040000-0x10044000 HexText}).
 
 \begin{figure}[H]
@@ -121,7 +128,7 @@ An 8$\times$8 byte sprite mask \code{piece\_mask} encodes \code{0} (background t
 \subsection{Advanced Rulesets: Forced Capture and Flying Kings}
 \label{sec:advanced}
 \paragraph{Forced First Capture (\code{opt\_forced}, Menu 6).}
-The bare-minimum specification relaxes English Checkers Rule~1 (optional first capture) while keeping Rule~2 (mandatory chain capture). Turning on \code{opt\_forced} restores full tournament English capture obligation: inside \code{validate\_move}, any geometrically valid \code{STEP} triggers \code{side\_has\_capture(side)}, which iterates squares $1 \dots 32$ and returns \code{1} if any friendly piece satisfies \code{can\_capture\_from}. If so, the non-capturing step is rejected with \code{ERR\_MUST\_CAPTURE}.
+The bare-minimum specification relaxes English Checkers Rule~1 (optional first capture) while keeping Rule~2 (mandatory chain capture). Turning on \code{opt\_forced} restores full tournament English capture obligation: inside \code{validate\_move}, any geometrically valid \code{STEP} triggers \code{side\_has\_capture(side)}, which packs the 32 dark squares into bitboards (\code{BP}, \code{RP}, \code{K}) and evaluates all four diagonal capture directions in parallel via \code{swar\_up\_caps}/\code{swar\_dn\_caps} (falling back strictly to the sparse king bitmask \code{OWN \& K} only when \code{opt\_flying = 1} and no short capture exists). If any capture exists, the non-capturing step is rejected with \code{ERR\_MUST\_CAPTURE}.
 
 \paragraph{Flying Kings Variant (\code{opt\_flying}, Menu 7).}
 When \code{opt\_flying = 1} and \code{is\_king} holds, two routines switch from fixed distance $1/2$ to variable-ray diagonal traversal:

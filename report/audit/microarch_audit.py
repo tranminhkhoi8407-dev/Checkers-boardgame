@@ -55,7 +55,7 @@ def decode_text_segment():
                 cats["Shift / Bitwise"] += 1
                 info["dst"] = rd
                 info["srcs"] = {rt}
-            elif fn in (0x24, 0x25, 0x26, 0x27):
+            elif fn in (0x04, 0x06, 0x07, 0x24, 0x25, 0x26, 0x27):
                 cats["Shift / Bitwise"] += 1
                 info["dst"] = rd
                 info["srcs"] = {rs, rt}
