@@ -40,6 +40,11 @@ input_line:     .space INPUT_SIZE
 input_next:     .word 0
 input_end:      .word 0
 
+# Dirty-tile cache for incremental MARS Bitmap Display updates
+bmp_valid:      .word 0
+bmp_last_rot:   .word -1
+bmp_cache:      .space 64
+
 str_black:      .asciiz "Black"
 str_red:        .asciiz "Red"
 str_invalid:    .asciiz "Not a valid move! Try again.\n"
@@ -91,6 +96,7 @@ init_board_loop:
     sb   $t1, board($t0)
     addi $t0, $t0, 1
     blt  $t0, 64, init_board_loop
+    sw   $zero, bmp_valid       # invalidate Bitmap Display dirty-tile cache
     jr   $ra
 
 # -----------------------------------------------------------------------------
@@ -149,25 +155,33 @@ square_piece:
 
 # -----------------------------------------------------------------------------
 # count_pieces(a0 = side) -> v0 = remaining piece count (pawns + kings) for side
+# Packs board[64] into 32-bit bitboards and computes Hamming weight using
+# branchless SWAR parallel popcount (Hacker's Delight, Sec. 5-1).
 # -----------------------------------------------------------------------------
 count_pieces:
     push($ra)
     push($s0)
-    push($s1)
-    push($s2)
-    move $s0, $a0
-    li   $s1, 0                 # board index
-    li   $s2, 0                 # piece counter
-count_pieces_loop:
-    lbu  $a0, board($s1)
-    move $a1, $s0
-    jal  is_own
-    add  $s2, $s2, $v0
-    addi $s1, $s1, 1
-    blt  $s1, 64, count_pieces_loop
-    move $v0, $s2
-    pop($s2)
-    pop($s1)
+    move $s0, $a0               # preserve side across pack_bitboards
+    jal  pack_bitboards         # v0 = BP, v1 = RP
+    beqz $s0, count_pieces_pop
+    move $v0, $v1               # select Red bitboard
+count_pieces_pop:
+    srl  $t0, $v0, 1
+    li   $t1, 0x55555555
+    and  $t0, $t0, $t1
+    subu $v0, $v0, $t0          # 2-bit partial sums
+    li   $t1, 0x33333333
+    and  $t0, $v0, $t1
+    srl  $v0, $v0, 2
+    and  $v0, $v0, $t1
+    addu $v0, $v0, $t0          # 4-bit partial sums
+    srl  $t0, $v0, 4
+    addu $v0, $v0, $t0
+    li   $t1, 0x0F0F0F0F
+    and  $v0, $v0, $t1          # 8-bit partial sums (each <= 8)
+    li   $t1, 0x01010101
+    mul  $v0, $v0, $t1          # horizontal sum into MSB
+    srl  $v0, $v0, 24
     pop($s0)
     pop($ra)
     jr   $ra
@@ -558,6 +572,15 @@ print_pretty_number_end:
 # MARS setup: Tools > Bitmap Display, Unit Width/Height = 8,
 # Display Width/Height = 512, Base address = 0x10040000 (heap), Connect to MIPS.
 # Framebuffer is 64x64 units (8x8 per tile), 1 32-bit 0x00RRGGBB word per unit.
+#
+# Architectural optimizations:
+#   1. Dirty-tile caching (bmp_cache[64]): redraws only modified tiles (2-3 per
+#      move); forces a full 64-tile redraw on first draw, restart, or rotation.
+#   2. Loop-Invariant Code Motion (LICM) + pointer stride: computes tile base
+#      pointer once per tile, then advances +4 B/pixel and +224 B/row.
+#   3. 8-way unrolled solid-tile fast path for empty/light tiles (+256 B/row).
+#   4. Pipeline load-use scheduling: schedules independent instructions between
+#      loads and dependent branches to eliminate inner-loop stalls.
 # -----------------------------------------------------------------------------
 draw_bitmap:
     push($s0)
@@ -569,17 +592,27 @@ draw_bitmap:
     push($s6)
     push($s7)
     move $s7, $a0               # s7 = rotated flag
-    li   $s0, 0                 # s0 = display row
+    lw   $t8, bmp_valid
+    lw   $t9, bmp_last_rot
+    li   $s0, 0                 # s0 = display row (scheduled in load-use slot)
+    beq  $t9, $s7, draw_bitmap_row
+    li   $t8, 0                 # rotation changed -> force full 64-tile redraw
 draw_bitmap_row:
-    li   $s1, 0                 # s1 = display col
+    li   $s1, 0                 # s1 = display col (0..7)
 draw_bitmap_col:
-    sll  $t0, $s0, 3            # canonical cell index (inline view_index)
+    sll  $t0, $s0, 3
     add  $t0, $t0, $s1
+    move $t6, $t0               # t6 = display tile index (0..63)
     beqz $s7, draw_bitmap_cell
     li   $t1, 63
-    sub  $t0, $t1, $t0
+    sub  $t0, $t1, $t0          # rotated canonical index
 draw_bitmap_cell:
     lbu  $t1, board($t0)
+    beqz $t8, draw_bitmap_dirty
+    lbu  $t2, bmp_cache($t6)
+    beq  $t1, $t2, draw_bitmap_next_tile
+draw_bitmap_dirty:
+    sb   $t1, bmp_cache($t6)
     li   $s2, COLOR_DARK        # s2 = tile background color
     bne  $t1, UNUSED, draw_bitmap_piece
     li   $s2, COLOR_LIGHT
@@ -590,52 +623,69 @@ draw_bitmap_piece:
     beq  $t1, KING_BLACK, draw_bitmap_bking
     beq  $t1, PAWN_RED, draw_bitmap_red
     beq  $t1, KING_RED, draw_bitmap_rking
-    j    draw_bitmap_units
+    j    draw_bitmap_tile_init
 draw_bitmap_bking:
     li   $s4, 1
 draw_bitmap_black:
     li   $s3, COLOR_BLACK
-    j    draw_bitmap_units
+    j    draw_bitmap_tile_init
 draw_bitmap_rking:
     li   $s4, 1
 draw_bitmap_red:
     li   $s3, COLOR_RED
 
-draw_bitmap_units:              # draw 8x8 pixels of current tile (y=s5, x=s6)
-    li   $s5, 0
+draw_bitmap_tile_init:          # LICM: compute tile framebuffer base once
+    sll  $t4, $s0, 9            # row * 8 * 64 = row * 512 words
+    sll  $t5, $s1, 3            # col * 8 words
+    add  $t4, $t4, $t5
+    sll  $t4, $t4, 2            # byte offset
+    li   $t5, BITMAP_BASE
+    add  $t4, $t4, $t5          # t4 = framebuffer pointer for pixel (0,0)
+    li   $s5, 0                 # s5 = pixel y (0..7)
+    beqz $s3, draw_bitmap_solid_y
+    la   $t5, piece_mask        # t5 = sequential pointer into 64B piece_mask
 draw_bitmap_y:
-    li   $s6, 0
+    li   $s6, 0                 # s6 = pixel x (0..7)
 draw_bitmap_x:
-    move $t2, $s2               # t2 = pixel RGB word
-    beqz $s3, draw_bitmap_put
-    sll  $t3, $s5, 3
-    add  $t3, $t3, $s6
-    lbu  $t3, piece_mask($t3)
+    lbu  $t3, 0($t5)            # load sprite mask byte
+    addi $t5, $t5, 1            # scheduled in load-use delay slot (0 stall!)
+    move $t2, $s2               # default: tile background RGB word
     beqz $t3, draw_bitmap_put
     move $t2, $s3
     bne  $t3, 2, draw_bitmap_put
     beqz $s4, draw_bitmap_put
     li   $t2, COLOR_KING
 draw_bitmap_put:
-    sll  $t4, $s0, 3            # pixel row = tile_row*8 + y
-    add  $t4, $t4, $s5
-    sll  $t4, $t4, 6            # * 64 units per framebuffer row
-    sll  $t5, $s1, 3            # pixel col = tile_col*8 + x
-    add  $t5, $t5, $s6
-    add  $t4, $t4, $t5
-    sll  $t4, $t4, 2            # * 4 bytes per word
-    li   $t5, BITMAP_BASE
-    add  $t4, $t4, $t5
     sw   $t2, 0($t4)
+    addi $t4, $t4, 4            # stride +4 bytes to next pixel in row
     addi $s6, $s6, 1
     blt  $s6, 8, draw_bitmap_x
+    addi $t4, $t4, 224          # stride +(64-8)*4 bytes to next tile row
     addi $s5, $s5, 1
     blt  $s5, 8, draw_bitmap_y
+    j    draw_bitmap_next_tile
 
+draw_bitmap_solid_y:            # 8-way unrolled fill for empty/light tiles
+    sw   $s2, 0($t4)
+    sw   $s2, 4($t4)
+    sw   $s2, 8($t4)
+    sw   $s2, 12($t4)
+    sw   $s2, 16($t4)
+    sw   $s2, 20($t4)
+    sw   $s2, 24($t4)
+    sw   $s2, 28($t4)
+    addi $t4, $t4, 256          # stride +64*4 bytes to next row
+    addi $s5, $s5, 1
+    blt  $s5, 8, draw_bitmap_solid_y
+
+draw_bitmap_next_tile:
     addi $s1, $s1, 1
     blt  $s1, 8, draw_bitmap_col
     addi $s0, $s0, 1
     blt  $s0, 8, draw_bitmap_row
+    li   $t0, 1
+    sw   $t0, bmp_valid
+    sw   $s7, bmp_last_rot
     pop($s7)
     pop($s6)
     pop($s5)

@@ -373,8 +373,54 @@ play_turn_ret:
     jr   $ra
 
 # -----------------------------------------------------------------------------
+# print_bitmask(a0 = 32-bit canonical mask, a1 = side) -> v0 = count printed
+# Prints each set square in ascending displayed order (" 21 22 ...").
+# When Red uses player-relative numbering (opt_relnum = 1), scans MSB->LSB via
+# bltz + sll so displayed squares (33 - canonical) appear in ascending order.
+# -----------------------------------------------------------------------------
+print_bitmask:
+    push($s0)
+    push($s1)
+    push($s2)
+    move $s0, $a0               # s0 = remaining bitmask
+    li   $s1, 1                 # s1 = displayed square number (1..32)
+    li   $s2, 0                 # s2 = count of printed squares
+    beqz $s0, print_bm_ret
+    beqz $a1, print_bm_lsb
+    lw   $t0, opt_relnum
+    bnez $t0, print_bm_msb
+print_bm_lsb:                   # canonical order: bit 0 -> sq 1 .. bit 31 -> sq 32
+    andi $t0, $s0, 1
+    beqz $t0, print_bm_lsb_next
+    addi $s2, $s2, 1
+    print_char(' ')
+    print_int_reg($s1)
+print_bm_lsb_next:
+    srl  $s0, $s0, 1
+    addi $s1, $s1, 1
+    bnez $s0, print_bm_lsb
+    j    print_bm_ret
+print_bm_msb:                   # Red relative order: bit 31 -> disp 1 .. bit 0 -> disp 32
+    bgez $s0, print_bm_msb_next
+    addi $s2, $s2, 1
+    print_char(' ')
+    print_int_reg($s1)
+print_bm_msb_next:
+    sll  $s0, $s0, 1
+    addi $s1, $s1, 1
+    bnez $s0, print_bm_msb
+print_bm_ret:
+    move $v0, $s2
+    pop($s2)
+    pop($s1)
+    pop($s0)
+    jr   $ra
+
+# -----------------------------------------------------------------------------
 # print_movable_pieces(a0 = side) - hints: list all pieces with a legal move
-# (uses active player's numbering; respects forced capture when enabled)
+# Standard rules (opt_flying = 0): O(1) Reverse-SWAR Chinook Duality generator.
+# Flying kings (opt_flying = 1): caches forced-capture status once and checks
+# O(4) diagonal rays per piece via can_capture_from / can_step_from.
 # -----------------------------------------------------------------------------
 print_movable_pieces:
     push($ra)
@@ -382,11 +428,74 @@ print_movable_pieces:
     push($s1)
     push($s2)
     push($s3)
+    push($s4)
+    push($s5)
     move $s0, $a0               # s0 = side
+    lw   $t0, opt_flying
+    bnez $t0, print_movable_flying
+
+    # O(1) Reverse-SWAR Chinook Duality path (opt_flying == 0)
+    jal  pack_bitboards         # v0 = BP, v1 = RP, t9 = K
+    or   $s4, $v0, $v1
+    nor  $s4, $s4, $zero        # s4 = E = ~(BP | RP)
+    bnez $s0, print_mov_swar_red
+    move $s1, $v0               # s1 = UP = BP
+    and  $s2, $v0, $t9          # s2 = DN = BP & K
+    move $s3, $v1               # s3 = OPP = RP
+    j    print_mov_swar_caps
+print_mov_swar_red:
+    and  $s1, $v1, $t9          # s1 = UP = RP & K
+    move $s2, $v1               # s2 = DN = RP
+    move $s3, $v0               # s3 = OPP = BP
+print_mov_swar_caps:
+    li   $s5, 0                 # s5 = CAP_SRC bitmask
+    beqz $s1, print_mov_swar_dncap
+    move $a0, $s4               # Chinook Duality: E shifted DN over OPP -> UP sources
+    move $a1, $s3
+    move $a2, $s1
+    jal  swar_dn_caps
+    or   $s5, $s5, $v0
+print_mov_swar_dncap:
+    beqz $s2, print_mov_swar_forced
+    move $a0, $s4               # Chinook Duality: E shifted UP over OPP -> DN sources
+    move $a1, $s3
+    move $a2, $s2
+    jal  swar_up_caps
+    or   $s5, $s5, $v0
+print_mov_swar_forced:
+    lw   $t0, opt_forced
+    beqz $t0, print_mov_swar_steps
+    beqz $s5, print_mov_swar_steps
+    print_str(str_must_cap)
+    j    print_mov_swar_emit
+print_mov_swar_steps:
+    beqz $s1, print_mov_swar_dnstep
+    move $a0, $s4               # Duality: (SW(E)|SE(E)) & UP
+    jal  swar_dn_steps
+    and  $t0, $v0, $s1
+    or   $s5, $s5, $t0
+print_mov_swar_dnstep:
+    beqz $s2, print_mov_swar_emit
+    move $a0, $s4               # Duality: (NW(E)|NE(E)) & DN
+    jal  swar_up_steps
+    and  $t0, $v0, $s2
+    or   $s5, $s5, $t0
+print_mov_swar_emit:
+    print_str(str_hint_pieces)
+    move $a0, $s5
+    move $a1, $s0
+    jal  print_bitmask
+    print_char('\n')
+    j    print_movable_ret
+
+print_movable_flying:
+    li   $s3, 0                 # s3 = 1 iff forced capture is currently active
     lw   $t0, opt_forced
     beqz $t0, print_movable_list
+    move $a0, $s0
     jal  side_has_capture
-    beqz $v0, print_movable_list
+    move $s3, $v0
+    beqz $s3, print_movable_list
     print_str(str_must_cap)
 print_movable_list:
     print_str(str_hint_pieces)
@@ -400,16 +509,15 @@ print_movable_loop:
     move $a1, $s0
     jal  check_start
     bnez $v0, print_movable_next
-    li   $s3, 1                 # s3 = candidate landing square
-print_movable_try:
     move $a0, $s2
-    move $a1, $s3
-    move $a2, $s0
-    jal  validate_move
+    move $a1, $s0
+    jal  can_capture_from
     bnez $v0, print_movable_show
-    addi $s3, $s3, 1
-    ble  $s3, 32, print_movable_try
-    j    print_movable_next
+    bnez $s3, print_movable_next
+    move $a0, $s2
+    move $a1, $s0
+    jal  can_step_from
+    beqz $v0, print_movable_next
 print_movable_show:
     print_char(' ')
     print_int_reg($s1)
@@ -417,6 +525,9 @@ print_movable_next:
     addi $s1, $s1, 1
     ble  $s1, 32, print_movable_loop
     print_char('\n')
+print_movable_ret:
+    pop($s5)
+    pop($s4)
     pop($s3)
     pop($s2)
     pop($s1)
@@ -427,6 +538,8 @@ print_movable_next:
 # -----------------------------------------------------------------------------
 # print_landing_squares(a0 = piece square, a1 = side, a2 = 1 if chaining)
 #   -> v0 = count of legal landing squares. Lists valid destinations for piece.
+# Standard rules (opt_flying = 0): O(1) Forward-SWAR Chinook landing bitmask.
+# Flying kings (opt_flying = 1): caches must-capture once and filters empty sqs.
 # -----------------------------------------------------------------------------
 print_landing_squares:
     push($ra)
@@ -435,9 +548,101 @@ print_landing_squares:
     push($s2)
     push($s3)
     push($s4)
-    move $s0, $a0               # s0 = canonical starting square
+    push($s5)
+    push($s6)
+    move $s0, $a0               # s0 = canonical starting square (1..32)
     move $s1, $a1               # s1 = side
-    move $s2, $a2               # s2 = chaining flag
+    move $s2, $a2               # s2 = must_capture flag (1 if chaining)
+    lw   $t0, opt_flying
+    bnez $t0, print_landing_flying
+
+    # O(1) Forward-SWAR Chinook landing bitmask (opt_flying == 0)
+    jal  pack_bitboards         # v0 = BP, v1 = RP, t9 = K
+    or   $s4, $v0, $v1
+    nor  $s4, $s4, $zero        # s4 = E = ~(BP | RP)
+    bnez $s1, print_land_swar_red
+    move $s5, $v0               # s5 = UP = BP
+    and  $s6, $v0, $t9          # s6 = DN = BP & K
+    move $s3, $v1               # s3 = OPP = RP
+    j    print_land_swar_forced
+print_land_swar_red:
+    and  $s5, $v1, $t9          # s5 = UP = RP & K
+    move $s6, $v1               # s6 = DN = RP
+    move $s3, $v0               # s3 = OPP = BP
+print_land_swar_forced:
+    bnez $s2, print_land_swar_piece
+    lw   $t0, opt_forced
+    beqz $t0, print_land_swar_piece
+    beqz $s5, print_land_swar_fdn
+    move $a0, $s5
+    move $a1, $s3
+    move $a2, $s4
+    jal  swar_up_caps
+    bnez $v0, print_land_swar_setcap
+print_land_swar_fdn:
+    beqz $s6, print_land_swar_piece
+    move $a0, $s6
+    move $a1, $s3
+    move $a2, $s4
+    jal  swar_dn_caps
+    beqz $v0, print_land_swar_piece
+print_land_swar_setcap:
+    li   $s2, 1                 # forced capture active for this turn
+print_land_swar_piece:
+    addi $t0, $s0, -1           # bit index b = s0 - 1
+    li   $t1, 1
+    sllv $t1, $t1, $t0          # t1 = 1 << (s0 - 1)
+    bnez $s1, print_land_swar_rp
+    move $s5, $t1               # UP_S = sbit
+    and  $s6, $s6, $t1          # DN_S = sbit & (BP & K)
+    j    print_land_swar_dest
+print_land_swar_rp:
+    and  $s5, $s5, $t1          # UP_S = sbit & (RP & K)
+    move $s6, $t1               # DN_S = sbit
+print_land_swar_dest:
+    li   $s0, 0                 # s0 = DEST landing bitmask
+    beqz $s5, print_land_swar_dcap
+    move $a0, $s5
+    move $a1, $s3
+    move $a2, $s4
+    jal  swar_up_caps
+    or   $s0, $s0, $v0
+print_land_swar_dcap:
+    beqz $s6, print_land_swar_step
+    move $a0, $s6
+    move $a1, $s3
+    move $a2, $s4
+    jal  swar_dn_caps
+    or   $s0, $s0, $v0
+print_land_swar_step:
+    bnez $s2, print_land_swar_emit
+    beqz $s5, print_land_swar_dstep
+    move $a0, $s5
+    jal  swar_up_steps
+    and  $t0, $v0, $s4
+    or   $s0, $s0, $t0
+print_land_swar_dstep:
+    beqz $s6, print_land_swar_emit
+    move $a0, $s6
+    jal  swar_dn_steps
+    and  $t0, $v0, $s4
+    or   $s0, $s0, $t0
+print_land_swar_emit:
+    print_str(str_hint_lands)
+    move $a0, $s0
+    move $a1, $s1
+    jal  print_bitmask
+    move $s4, $v0               # s4 = count of legal destinations
+    j    print_landing_finish
+
+print_landing_flying:
+    bnez $s2, print_landing_init
+    lw   $t0, opt_forced
+    beqz $t0, print_landing_init
+    move $a0, $s1
+    jal  side_has_capture
+    move $s2, $v0               # s2 = 1 iff forced capture active this turn
+print_landing_init:
     li   $s3, 1                 # s3 = displayed landing square number
     li   $s4, 0                 # s4 = legal destination counter
     print_str(str_hint_lands)
@@ -445,27 +650,32 @@ print_landing_loop:
     move $a0, $s3
     move $a1, $s1
     jal  view_square
+    move $s5, $v0               # s5 = canonical candidate destination
+    move $a0, $s5
+    jal  square_piece
+    bne  $v0, EMPTY, print_landing_next
     move $a0, $s0
-    move $a1, $v0
+    move $a1, $s5
     move $a2, $s1
-    bnez $s2, print_landing_chain
-    jal  validate_move
-    j    print_landing_check
-print_landing_chain:
-    jal  validate_chain
-print_landing_check:
+    jal  classify_move
     beqz $v0, print_landing_next
+    beq  $v0, CAPTURE, print_landing_accept
+    bnez $s2, print_landing_next
+print_landing_accept:
     addi $s4, $s4, 1
     print_char(' ')
     print_int_reg($s3)
 print_landing_next:
     addi $s3, $s3, 1
     ble  $s3, 32, print_landing_loop
+print_landing_finish:
     bnez $s4, print_landing_end
     print_str(str_hint_none)
 print_landing_end:
     print_char('\n')
     move $v0, $s4
+    pop($s6)
+    pop($s5)
     pop($s4)
     pop($s3)
     pop($s2)
