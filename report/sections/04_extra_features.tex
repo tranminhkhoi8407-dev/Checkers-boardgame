@@ -1,5 +1,7 @@
-\section{Extra Features: Quality of Life and Advanced Rulesets}
+\section{Player controls, rule options and display}
 \label{sec:extra}
+
+The settings separate three concerns: how the position looks, how players enter a move, and which moves the rules allow. Rotating the board changes the first two; enabling mandatory first capture changes the third. The examples below use these distinctions to explain the menu.
 
 To advance beyond the bare-minimum grade cap (Section~3 of the CO2008 specification), the project implements a cohesive runtime configuration system controlled by entering \code{0} at the starting-square prompt. Nine boolean option words (\code{opt\_pretty} through \code{opt\_replay}) occupy contiguous 4-byte slots starting at label \code{options}, allowing the menu loop (\code{src/main.asm}, lines~615--619) to toggle any setting $k \in [1, 9]$ in five branchless instructions: \code{addi \$t0, \$s0, -1; sll \$t0, \$t0, 2; lw \$t1, options(\$t0); xori \$t1, \$t1, 1; sw \$t1, options(\$t0)}. Table~\ref{tab:extra_summary} maps every implemented extension to the specification.
 

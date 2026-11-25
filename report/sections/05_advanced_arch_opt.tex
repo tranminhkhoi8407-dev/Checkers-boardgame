@@ -1,11 +1,13 @@
-\section{Advanced Data Structures, MIPS32 Microarchitecture, and Deployed Optimizations}
+\section{Implementation decisions and their measured cost}
 \label{sec:advanced_arch}
 
-To elevate our MARS MIPS32 implementation from a baseline student assignment (v1.0) to a state-of-the-art architecture grounded in draughts engine research and quantitative hardware principles \cite{schaeffer2007,patterson2020,hennessy2019,warren2012}, this section documents three integrated engineering pillars deployed directly in production v2.0: (i) a \textbf{Hybrid 64-Byte Mailbox + 32-Bit Chinook SWAR Bitboard Engine} with Direction-Reversal Duality and branchless SWAR \code{popcount}, (ii) a binary-level MIPS32 opcode mix, 5-stage pipeline hazard, and L1 cache locality audit, and (iii) empirical before-vs.-after live MARS 4.5 benchmarks across every workload.
+Two operations made the original implementation do unnecessary work: scanning playable squares repeatedly to offer hints, and repainting unchanged tiles after a move. The implementation retained the board used by the rules and display, adding masks for whole-board queries and a tile cache for rendering. The alternatives below explain these choices; only the baseline and the delivered version are benchmarked as project builds.
+
+To elevate our MARS MIPS32 implementation from a baseline student assignment (v1.0) to a state-of-the-art architecture grounded in draughts engine research and quantitative hardware principles (Schaeffer et al., \emph{Checkers Is Solved}; Patterson and Hennessy, \emph{Computer Organization and Design}; Hennessy and Patterson, \emph{Computer Architecture: A Quantitative Approach}; Warren, \emph{Hacker's Delight}, Sec.~5-1), this section documents three integrated engineering pillars deployed directly in production v2.0: (i) a \textbf{Hybrid 64-Byte Mailbox + 32-Bit Chinook SWAR Bitboard Engine} with Direction-Reversal Duality and branchless SWAR \code{popcount}, (ii) a binary-level MIPS32 opcode mix, 5-stage pipeline hazard, and L1 cache locality audit, and (iii) empirical before-vs.-after live MARS 4.5 benchmarks across every workload.
 
 \subsection{Hybrid Architecture: Mailbox + 32-Bit Chinook SWAR Bitboards}
 \label{sec:bitboard_compare}
-High-performance tournament checkers engines---originating with Samuel's 36-bit ghost-square layout \cite{samuel1959}, Jonathan Schaeffer's world-champion solver \emph{Chinook} \cite{schaeffer2007}, Martin Fierz's \emph{Cake} \cite{fierz_cake}, Fabien Letouzey's \emph{Scan} \cite{letouzey_scan}, and modern open-source engines such as \code{rapid-draughts} \cite{rapid_draughts} and \code{py-draughts} \cite{py_draughts}---exploit the fact that English Checkers uses exactly 32 dark squares. Consequently, the entire board state compresses into just \textbf{three 32-bit CPU registers} (12 bytes total): Black occupancy \code{BP} (\code{\$v0}), Red occupancy \code{RP} (\code{\$v1}), and King mask \code{K} (\code{\$t9}), with empty squares derived in two cycles as $\code{E} = \neg(\code{BP} \mid \code{RP})$.
+High-performance tournament checkers engines---originating with Samuel's 36-bit ghost-square layout (Samuel, IBM Journal, 1959), Jonathan Schaeffer's world-champion solver \emph{Chinook} (Schaeffer et al., \emph{Checkers Is Solved}), Martin Fierz's \emph{Cake} (Fierz, Cake engine), Fabien Letouzey's \emph{Scan} (Letouzey, Scan engine), and modern open-source engines such as \code{rapid-draughts} (rapid-draughts) and \code{py-draughts} (py-draughts)---exploit the fact that English Checkers uses exactly 32 dark squares. Consequently, the entire board state compresses into just \textbf{three 32-bit CPU registers} (12 bytes total): Black occupancy \code{BP} (\code{\$v0}), Red occupancy \code{RP} (\code{\$v1}), and King mask \code{K} (\code{\$t9}), with empty squares derived in two cycles as $\code{E} = \neg(\code{BP} \mid \code{RP})$.
 
 In production v2.0, we deploy a \textbf{hybrid architecture} that achieves the best of both worlds: \code{board[64]} remains the canonical 1-cache-line ASCII mailbox for zero-translation \code{syscall 11} display, Bitmap rendering, and Flying King rays, while our leaf packer \code{pack\_bitboards} in \code{src/rules.asm} extracts \code{(BP, RP, K)} on demand across the 32 dark squares using alternating row-end stride (\code{-1/+1}), zero-stall load-use scheduling (\code{addi \$t0, \$t0, 2}), and bit-5/bit-6 ASCII case decoding (\code{andi \$t4, \$t3, 0xDF}).
 
@@ -37,7 +39,7 @@ By \textbf{Direction-Reversal Duality} (verified across 10,000 random boards $\t
     \end{align}
     Our leaf emitter \code{print\_bitmask} prints canonical bits LSB-first (\code{andi/srl}) or Red's player-relative squares MSB-first using MIPS's native sign-bit branch \code{bgez} + \code{sll}, terminating immediately when the remaining mask hits zero.
     \item \textbf{Unified Mobility (\code{has\_any\_move}):} Evaluates $\mathrm{UpStep}/\mathrm{DnStep}$ and $\mathrm{UpCap}/\mathrm{DnCap}$ with early short-circuiting---exact for \emph{both} standard and Flying Kings by the Mobility Equivalence Theorem (Section~\ref{sec:win_detect}).
-    \item \textbf{Branchless SWAR Hamming Weight (\code{count\_pieces}):} Computes the 32-bit population count of \code{BP} or \code{RP} with zero branches via the MIT HAKMEM / \emph{Hacker's Delight} \cite{warren2012,anderson_bithacks} parallel reduction:
+    \item \textbf{Branchless SWAR Hamming Weight (\code{count\_pieces}):} Computes the 32-bit population count of \code{BP} or \code{RP} with zero branches via the MIT HAKMEM / \emph{Hacker's Delight} (Warren, \emph{Hacker's Delight}, Sec.~5-1; Anderson, \emph{Bit Twiddling Hacks}) parallel reduction:
     $x \leftarrow x - ((x \gg 1) \mathbin{\&} \texttt{0x55555555})$,
     $x \leftarrow (x \mathbin{\&} \texttt{0x33333333}) + ((x \gg 2) \mathbin{\&} \texttt{0x33333333})$,
     $\text{popcnt} = \big(((x + (x \gg 4)) \mathbin{\&} \texttt{0x0F0F0F0F}) \times \texttt{0x01010101}\big) \gg 24$.
@@ -65,8 +67,8 @@ Representation & Board RAM & \code{side\_has\_cap} & Flying King & Engineering R
 \midrule
 \textbf{64B Mailbox Only} (v1.0 Baseline) & 64\,B (1 L1 line) & 4,408 instrs & Stride loop ($8\cdot dr + dc$) & Clean display and rays, but $O(32)$ scans bottleneck forced capture and $32\times 32$ move hints. \\
 \textbf{Hybrid Mailbox + 32b SWAR} (\textbf{v2.0}) & 64\,B + 3 regs & \textbf{525 instrs} (\textbf{8.40$\times$}) & SWAR + sparse king mask \code{OWN\&K} & Preserves direct \code{syscall 11}/Bitmap I/O and \code{rules\_driver} compatibility while delivering $O(1)$ bit-parallel rules \& hints. \\
-\textbf{Pure 32-Bit SWAR} \cite{schaeffer2007,rapid_draughts} & 12\,B (3 regs) & 39--73 instrs (no unpack) & Kogge-Stone 3-step fill \cite{letouzey_scan} & Optimal for deep alpha-beta AI trees ($>10^6$ nodes/s); requires bit-unpacking for human I/O. \\
-\textbf{36-Bit Ghost-Square} \cite{samuel1959,fierz_cake} & 24\,B (3$\times$64b) & Constant shifts (+4/+5) & 64-bit masked ray shifts & Requires 64-bit registers; software 64-bit shifts on 32-bit MIPS32 double register pressure. \\
+\textbf{Pure 32-Bit SWAR} (Schaeffer et al., \emph{Checkers Is Solved}; rapid-draughts) & 12\,B (3 regs) & 39--73 instrs (no unpack) & Kogge-Stone 3-step fill (Letouzey, Scan engine) & Compact for search; requires bit-unpacking for human I/O. \\
+\textbf{36-Bit Ghost-Square} (Samuel, IBM Journal, 1959; Fierz, Cake engine) & 24\,B (3$\times$64b) & Constant shifts (+4/+5) & 64-bit masked ray shifts & Requires 64-bit registers; software 64-bit shifts on 32-bit MIPS32 double register pressure. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -75,7 +77,7 @@ Representation & Board RAM & \code{side\_has\_cap} & Flying King & Engineering R
 \label{sec:microarch}
 Directly decoding all \textbf{2,283 assembled 32-bit machine words} dumped from v2.0 \code{Mars45.jar} (\code{dump .text HexText}) reveals a textbook microarchitectural signature of transitioning from scalar loops to bit-parallel SWAR computation (Figure~\ref{fig:deep_chart}a): \textbf{Shift / Bitwise instructions nearly doubled in share from 6.01\% (113 words in v1.0) to 10.07\% (230 words in v2.0)}, while loads declined in share from 8.57\% to 7.93\% (181 words). The full static mix is I-type ALU 35.65\% (814), R-type ALU 14.89\% (340), Branch 10.78\% (246), Shift/Bitwise 10.07\% (230), Jump/Call 9.81\% (224), Load 7.93\% (181), Store 6.44\% (147), and Syscall 4.42\% (101).
 
-\paragraph{Classic 5-Stage MIPS Pipeline Hazard Audit \cite{patterson2020}.}
+\paragraph{Classic 5-Stage MIPS Pipeline Hazard Audit (Patterson and Hennessy, \emph{Computer Organization and Design}).}
 Scanning adjacent decoded instructions across all 2,283 words yields two concrete datapath insights:
 \begin{itemize}
     \item \textbf{EX/MEM $\to$ EX Forwarding Reliance:} \textbf{755 instruction pairs (33.1\%)} read a register written by the immediately preceding ALU/shift instruction (including all consecutive SWAR shift-mask chains). Full hardware forwarding executes all 755 with zero stalls.
@@ -85,20 +87,21 @@ Scanning adjacent decoded instructions across all 2,283 words yields two concret
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/fig_pipeline_hazard.pdf}
-\caption{MIPS 5-stage pipeline timing comparison between v1.0's inner-loop load-use stall and v2.0's deployed zero-stall instruction schedule in \code{draw\_bitmap\_x} (\code{src/board\_io.asm:648--651}) \cite{patterson2020}.}
+\caption{MIPS 5-stage pipeline timing comparison between v1.0's inner-loop load-use stall and v2.0's deployed zero-stall instruction schedule in \code{draw\_bitmap\_x} (\code{src/board\_io.asm:648--651}) (Patterson and Hennessy, \emph{Computer Organization and Design}).}
 \label{fig:pipeline_hazard}
 \end{figure}
 
 \paragraph{L1 Data-Cache Locality Profile.}
-On a canonical 4\,KiB direct-mapped L1 data cache with 64-byte blocks \cite{patterson2020}:
+On a canonical 4\,KiB direct-mapped L1 data cache with 64-byte blocks (Patterson and Hennessy, \emph{Computer Organization and Design}):
 \begin{itemize}
-    \item \textbf{\code{board[64]}, \code{piece\_mask[64]}, and \code{bmp\_cache[64]}:} Each array is \emph{exactly one 64-byte cache line}. Once fetched by a single compulsory miss, every subsequent lookup hits in L1D with 100\% temporal and spatial locality.
-    \item \textbf{Dirty-tile MMIO reduction:} Whereas v1.0 streamed 16\,KiB (256 cache lines, $4\times$ a 4\,KiB L1D) on every move, v2.0's dirty-tile cache modifies only 2--3 tiles (128--192 words = 8--12 cache lines/move), reducing framebuffer memory traffic by \textbf{95--97\%} and preventing capacity eviction of \code{board}/\code{piece\_mask}.
+    \item \textbf{\code{board[64]}, \code{piece\_mask[64]}, and \code{bmp\_cache[64]}:} Each array occupies 64 contiguous bytes. With 64-byte lines, the number of lines touched also depends on alignment; repeated hits depend on intervening accesses.
+    \item \textbf{Dirty-tile MMIO reduction:} Whereas v1.0 streamed 16\,KiB (256 cache lines, $4\times$ a 4\,KiB L1D) on every move, v2.0's dirty-tile cache modifies only 2--3 tiles (128--192 words = 8--12 cache lines/move), reducing framebuffer memory traffic by \textbf{95--97\%} without implying a measured cache hit rate.
 \end{itemize}
 
-\subsection{Empirical Production Benchmarks: v1.0 Baseline vs.\ v2.0 Deployed}
+\subsection{Instruction counts before and after the changes}
+Each ratio compares simulated instruction counts for the stated workload. It is not a measurement of elapsed time, clock cycles or cache misses.
 \label{sec:opt_prototypes}
-Guided by Amdahl's Law \cite{hennessy2019}, every optimization was integrated directly into production \code{src/*.asm} and verified for 100\% byte-identical terminal output and 4,096/4,096 pixel-exact Bitmap dumps on live \code{Mars45.jar}. Table~\ref{tab:opt_bench} reports the exact before-vs.-after measurements.
+Guided by Amdahl's Law (Hennessy and Patterson, \emph{Computer Architecture: A Quantitative Approach}), every optimization was integrated directly into production \code{src/*.asm} and verified for 100\% byte-identical terminal output and 4,096/4,096 pixel-exact Bitmap dumps on live \code{Mars45.jar}. Table~\ref{tab:opt_bench} reports the exact before-vs.-after measurements.
 
 \begin{table}[H]
 \centering
@@ -163,7 +166,7 @@ swar_up_caps:                     # $a0 = SRC, $a1 = OPP, $a2 = DST -> $v0 = 32-
 \end{lstlisting}
 
 \vspace{0.3cm}
-\begin{lstlisting}[style=mipsstyle, caption={Deployed production MIPS32 branchless SWAR Hamming weight (\code{count\_pieces}, \code{src/board\_io.asm:161--187}, \emph{Hacker's Delight} \S 5-1 \cite{warren2012}) and 8-way unrolled solid-tile renderer (\code{src/board\_io.asm:667--678}).}, label={lst:popcnt_unroll}]
+\begin{lstlisting}[style=mipsstyle, caption={Deployed production MIPS32 branchless SWAR Hamming weight (\code{count\_pieces}, \code{src/board\_io.asm:161--187}, \emph{Hacker's Delight} \S 5-1 (Warren, \emph{Hacker's Delight}, Sec.~5-1)) and 8-way unrolled solid-tile renderer (\code{src/board\_io.asm:667--678}).}, label={lst:popcnt_unroll}]
 # --- src/board_io.asm: branchless 32-bit SWAR popcount (0 branches, 14 ALU ops) ---
 count_pieces_pop:                 # $v0 = 32-bit occupancy bitboard (BP or RP)
     srl  $t0, $v0, 1

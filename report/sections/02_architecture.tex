@@ -1,5 +1,7 @@
-\section{System Architecture and Software Design}
+\section{Board representation and MIPS program structure}
 \label{sec:arch}
+
+The terminal, rules and bitmap display share one board. This section follows a square from the number typed by a player to its position in memory, then shows how the assembly routines share that state without changing the board during validation.
 
 \subsection{Modular File Organization}
 Rather than placing over 2,400 lines of assembly in a single monolithic file, the project applies a clean four-file modular architecture under \code{src/}, assembled as a single translation unit via MARS \code{.include} directives in \code{src/main.asm}. Alongside the MIPS implementation, the repository provides an executable C++ reference (\code{src/main.cpp}) whose function names mirror the core MIPS procedures, an interactive Tkinter replay tool (\code{main.py}), and an automated 54-test multi-tier \code{pytest} suite under \code{tests/}.

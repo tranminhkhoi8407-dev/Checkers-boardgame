@@ -1,13 +1,15 @@
 \clearpage
-\section{Deep Audit, Perft Verification, and Differential Fuzzing}
+\section{Verification of rules, integration and performance}
 \label{sec:audit}
+
+A full-game transcript can reveal a turn changing too early, but a winning result alone does not identify which rule was wrong. We therefore distinguish recorded games, tests of constructed positions, independent comparisons of move generation, and performance measurements. Counts in this section are project verification records, not claims of a new run for this edition.
 
 \subsection{Automated Testing, Live MARS Perft, and Differential Fuzzing}
 \label{sec:testing}
 Every layer of the deployed v2.0 MIPS32 engine was verified autonomously against live \textbf{MARS 4.5} (\code{Mars45.jar}) under OpenJDK Temurin 21.0.13 with strict assembly/runtime exception trapping (\code{ae1 se1}). Beyond the 47 core deterministic \code{pytest} cases, we added two gold-standard board-game and microprocessor verification tiers:
 \begin{enumerate}
     \item \textbf{Live MARS 4.5 \code{Perft}(1--3) Move-Tree Verification:} Standard computer draughts verification measures exact reachable leaf nodes from the initial 12-vs.-12 board. Executing our batched \code{rules\_driver.asm} directly on \code{Mars45.jar} reproduces the canonical WCDF English Checkers sequence \textbf{Depth~1 = 7, Depth~2 = 49, Depth~3 = 302} under \code{opt\_forced = 1} (and \textbf{7 / 49 / 379} under CO2008's optional-first-capture classic rule), confirming zero legal-move generation, capture-chain, or board-transition defects across the entire 3-ply game tree.
-    \item \textbf{Differential Property-Based Fuzzing \cite{mckeeman1998,hur2021}:} Executing 500 randomly generated boards (4,000 rule queries covering standard English, Forced Capture, and Flying Kings) plus 120 dense/blockade SWAR invariance boards and 10,000 SWAR Duality checks simultaneously on \code{src/rules.asm} and an independent Python oracle yields \textbf{0 mismatches}.
+    \item \textbf{Differential Property-Based Fuzzing (McKeeman, \emph{Differential Testing for Software}; Hur et al., DifuzzRTL):} Executing 500 randomly generated boards (4,000 rule queries covering standard English, Forced Capture, and Flying Kings) plus 120 dense/blockade SWAR invariance boards and 10,000 SWAR Duality checks simultaneously on \code{src/rules.asm} and an independent Python oracle yields \textbf{0 mismatches}.
 \end{enumerate}
 
 \begin{table}[H]

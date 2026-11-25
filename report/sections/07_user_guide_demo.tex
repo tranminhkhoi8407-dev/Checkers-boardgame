@@ -1,5 +1,7 @@
-\section{User Guide, Execution Instructions, and Live Demo Script}
+\section{Running and demonstrating the delivered game}
 \label{sec:guide}
+
+Start with the terminal demonstration to check input and turn ownership. The rotation and capture demonstrations then reuse the same program with selected settings enabled. Each sequence identifies the observation that distinguishes correct behaviour from merely printing another board.
 
 \subsection{Running the Game on MARS 4.5}
 \label{sec:run_mars}
@@ -139,7 +141,7 @@ Move history (standard notation, Black's numbering):
 \end{lstlisting}
 
 \paragraph{Oral-Defense Assembly Walkthrough (\code{test\_001} Chain \code{11x2 2x9 9x18}).}
-When demonstrating low-level MIPS mastery to the instructor, trace the promotion chain in \code{test\_001}:
+To demonstrate where the turn changes, trace the promotion chain in \code{test\_001}:
 \begin{enumerate}
     \item \code{sq\_to\_rc} translates \code{11} $\to (2,5)$ and \code{2} $\to (0,3)$ using \code{srl}/\code{andi}/\code{xori}.
     \item \code{play\_turn} calls \code{validate\_move(\$a0=11, \$a1=2, \$a2=0)}, returning \code{\$v0 = CAPTURE (2)}.

@@ -1,16 +1,10 @@
-\section{Introduction and Project Overview}
+\section{Assignment scope and work delivered}
 \label{sec:intro}
 
-\subsection{Background and Objectives}
-Checkers (known internationally as \emph{English draughts}) is one of the foundational benchmarks in computer science and game-playing research---from Arthur Samuel's pioneering 1959 self-learning program \cite{samuel1959} to Jonathan Schaeffer et al.'s 2007 proof in \emph{Science} that English checkers is a weakly solved draw across $\approx 5\times 10^{20}$ board states \cite{schaeffer2007}. In the Computer Architecture Lab (\textbf{CO2008}) assignment at Ho Chi Minh City University of Technology (HCMUT), students implement a complete English Checkers engine directly in \textbf{MARS 4.5 MIPS32 Assembly} \cite{vollmar2006}.
+\subsection{Assignment and acceptance criteria}
+We built a two-player checkers game in MARS 4.5 assembly. Its interface is deliberately small: enter two square numbers, inspect the updated board, and pass the terminal to the other player. The difficult part is deciding when to pass control. Invalid input must leave the position unchanged; a capture may require another jump by the same piece; and reaching the back row can change the legal direction of that next jump.
 
-Building a non-trivial interactive game at the instruction-set level directly reinforces four core themes of modern computer organization \cite{patterson2020,hennessy2019}:
-\begin{enumerate}
-    \item \textbf{Low-level data modeling \& cache awareness:} Structuring the $8\times 8$ board (fitting inside a single 64-byte L1 cache line), move history, and 16\,KiB memory-mapped framebuffer (\code{0x10040000}) directly in flat MIPS32 virtual memory.
-    \item \textbf{Bitwise arithmetic \& Chinook SWAR bitboards:} Replacing divisions and modulo operations with bit shifts (\code{sll}, \code{srl}), masks (\code{andi}), and involutive transforms---and deploying a full \textbf{hybrid 64-byte mailbox + 32-bit Chinook SWAR bitboard engine} \cite{schaeffer2007,warren2012,rapid_draughts} directly in production MIPS32 for mobility, forced capture, bidirectional move hints, and branchless SWAR \code{popcount}.
-    \item \textbf{MIPS32 ABI \& pipeline discipline:} Organizing 2,451 assembly lines into 48 cleanly decoupled procedures (23 leaf, 25 non-leaf) across four source files with 100\% symmetric stack frames, zero ABI violations, and zero-stall load-use delay scheduling inside hot pixel and bitboard-packing loops.
-    \item \textbf{Rigorous multi-tier verification:} Pairing a crash-proof \code{syscall 14} buffered stdin parser with \textbf{54 automated \code{pytest} tests}---including live MARS 4.5 \textbf{WCDF \code{Perft}(1--3)} tree verification (\code{7 / 49 / 302})---and a \textbf{4,000-query differential property-based fuzzer} \cite{mckeeman1998,hur2021}.
-\end{enumerate}
+We used the assignment's requirements to separate the base game from optional rules. The terminal must show the position each turn, Black starts, and the game must announce the winner when the other side runs out of pieces. Continuing an available capture chain is compulsory. Forcing the first capture, rotating the view and allowing flying kings are separate settings, not assumptions about the base game. The report follows these decisions from board layout through implementation to the recorded tests and the MARS demonstration.
 
 \subsection{Delivered Scope Summary}
 The CO2008 specification distinguishes a \emph{bare-minimum product} (Sections~1--2, capped at 9/10 marks or 8/10 for the Honors program) from \emph{Quality-of-Life (QoL)} and \emph{Advanced Ruleset} extensions (Section~3). Our submission fulfills 100\% of the core requirements and adds ten substantial runtime-configurable extensions via an interactive menu (entering \code{0} at the starting-square prompt), while preserving bit-exact compatibility with automated classic transcript fixtures through the MARS program argument \code{pa classic}.
